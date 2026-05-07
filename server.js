@@ -499,7 +499,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
 // STATIC FILES
 // ======================
 
-const allowedFiles = ['discussion.html', 'instructor.html', 'styles.css', 'script.js', 'discussion.js'];
+const allowedFiles = ['discussion.html', 'instructor.html', 'styles.css', 'script.js', 'discussion.js', 'test-launch.html'];
 
 app.get('/:file', (req, res, next) => {
     const file = req.params.file;
