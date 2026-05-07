@@ -178,6 +178,44 @@ app.post('/lti/launch', (req, res) => {
     });
 });
 
+// Test launch route (bypasses OAuth signature for testing)
+app.post('/lti/test-launch', (req, res) => {
+    const testSecret = req.body.test_secret;
+    if (testSecret !== config.lti.consumerSecret) {
+        return res.status(401).send('Invalid test secret.');
+    }
+
+    const ltiData = {
+        userId: req.body.user_id || 'test-user',
+        userName: req.body.lis_person_name_full || 'Test User',
+        userEmail: req.body.lis_person_contact_email_primary || 'test@kennesaw.edu',
+        roles: req.body.roles || 'Student',
+        contextId: req.body.context_id || 'test-course',
+        contextTitle: req.body.context_title || 'Test Course',
+        resourceLinkId: req.body.resource_link_id || 'test-discussion',
+        resourceLinkTitle: req.body.resource_link_title || 'Test Discussion'
+    };
+
+    const isInstructor = config.instructorRoles.some(role =>
+        ltiData.roles.toLowerCase().includes(role.toLowerCase())
+    );
+
+    req.session.user = {
+        id: ltiData.userId,
+        name: ltiData.userName,
+        email: ltiData.userEmail,
+        isInstructor,
+        contextId: ltiData.contextId,
+        contextTitle: ltiData.contextTitle,
+        resourceLinkId: ltiData.resourceLinkId,
+        resourceLinkTitle: ltiData.resourceLinkTitle
+    };
+
+    req.session.save(() => {
+        res.redirect(isInstructor ? '/instructor.html' : '/discussion.html');
+    });
+});
+
 // Dev-mode direct login (no LTI needed)
 if (isDev) {
     app.get('/dev/login', (req, res) => {

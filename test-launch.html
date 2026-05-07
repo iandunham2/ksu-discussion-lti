@@ -5,7 +5,7 @@
 <h2>LTI Test Launch (Dev Only)</h2>
 <p>Simulates a D2L LTI launch. Choose a role and click Launch.</p>
 
-<form id="lti-form" method="POST" action="/lti/launch">
+<form id="lti-form" method="POST" action="/lti/test-launch">
     <label>Name: <input name="lis_person_name_full" value="Test Student"></label><br><br>
     <label>Email: <input name="lis_person_contact_email_primary" value="teststudent@students.kennesaw.edu"></label><br><br>
     <label>User ID: <input name="user_id" value="test-student-001"></label><br><br>
@@ -19,7 +19,7 @@
     <label>Course Title: <input name="context_title" value="Entertainment Podcasting Section"></label><br><br>
     <label>Discussion ID: <input name="resource_link_id" value="test-discussion-1"></label><br><br>
     <label>Discussion Title: <input name="resource_link_title" value="Module 1 Discussion"></label><br><br>
-    <input type="hidden" name="oauth_consumer_key" value="ksu-discussion-tool">
+    <label>Test Secret: <input name="test_secret" type="password" value="ksu-d2l-secret-2026"></label><br><br>
     <button type="submit" style="padding:10px 20px; font-size:16px;">Launch</button>
 </form>
 </body>
