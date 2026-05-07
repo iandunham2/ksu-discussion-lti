@@ -3,6 +3,7 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const helmet = require('helmet');
 const cors = require('cors');
 const compression = require('compression');
@@ -89,7 +90,7 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use(session({
+const sessionConfig = {
     secret: config.session.secret,
     resave: false,
     saveUninitialized: false,
@@ -99,7 +100,18 @@ app.use(session({
         maxAge: 24 * 60 * 60 * 1000,
         sameSite: isDev ? 'lax' : 'none' // 'none' required for iframe in production
     }
-}));
+};
+
+if (!isDev) {
+    sessionConfig.store = MongoStore.create({
+        mongoUrl: config.mongodb.uri,
+        dbName: 'ksu-discussion',
+        collectionName: 'sessions',
+        ttl: 24 * 60 * 60
+    });
+}
+
+app.use(session(sessionConfig));
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
