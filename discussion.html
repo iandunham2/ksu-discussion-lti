@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KSU Discussion Board</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container discussion-container">
+        <div id="ksu-brand-bar">
+            <span class="ksu-logo-text">KENNESAW STATE UNIVERSITY</span>
+        </div>
+        <header>
+            <h1 id="discussion-title">Discussion Board</h1>
+            <div class="stats">
+                <span id="user-info">Loading...</span>
+                <span id="context-info"></span>
+            </div>
+        </header>
+
+        <main class="discussion-layout">
+            <!-- New Post Composer -->
+            <section class="compose-section" id="compose-section">
+                <h2 id="compose-heading">New Post</h2>
+                <div class="compose-area">
+                    <div id="editor" contenteditable="true" spellcheck="true" placeholder="Write your discussion post here..."></div>
+                    <div class="compose-footer">
+                        <span id="word-count">0 words</span>
+                        <span id="char-count">0 characters</span>
+                        <div class="compose-actions">
+                            <button id="save-draft-btn" title="Save your draft locally">Save Draft</button>
+                            <button id="cancel-reply-btn" style="display:none;">Cancel Reply</button>
+                            <button id="submit-post-btn" title="Submit your post">Post</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Scratch Pad -->
+            <aside class="scratch-pad-panel">
+                <h3>Scratch Pad</h3>
+                <p class="scratch-pad-hint">Paste references, jot notes — this area is not monitored.</p>
+                <div id="scratch-pad" contenteditable="true" spellcheck="true" placeholder="Paste or type anything here..."></div>
+            </aside>
+
+            <!-- Discussion Thread -->
+            <section class="thread-section">
+                <div class="thread-header">
+                    <h2>Discussion Thread</h2>
+                    <button id="refresh-posts-btn" class="refresh-btn-sm">Refresh</button>
+                </div>
+                <div id="posts-container">
+                    <p class="loading-msg">Loading posts...</p>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Every keystroke is timestamped &bull; Submissions analyzed by GPTZero AI Detection</p>
+        </footer>
+    </div>
+
+    <div id="paste-warning" class="paste-warning">Paste blocked in editor</div>
+
+    <script src="discussion.js"></script>
+</body>
+</html>
