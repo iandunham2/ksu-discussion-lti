@@ -237,17 +237,17 @@ app.get('/api/user', requireAuth, (req, res) => {
 
 app.get('/api/posts', requireAuth, async (req, res) => {
     try {
-        const contextId = req.session.user.contextId;
+        const resourceLinkId = req.session.user.resourceLinkId;
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ contextId })
+                .find({ resourceLinkId })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextId === contextId)
+                .filter(p => p.resourceLinkId === resourceLinkId)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
@@ -320,6 +320,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
         const post = {
             id: crypto.randomBytes(16).toString('hex'),
             contextId: req.session.user.contextId,
+            resourceLinkId: req.session.user.resourceLinkId,
             parentId: parentId || null,
             authorId: req.session.user.id,
             authorName: req.session.user.name,
@@ -473,17 +474,17 @@ async function runAIDetection(text) {
 
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
-        const contextId = req.session.user.contextId;
+        const resourceLinkId = req.session.user.resourceLinkId;
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ contextId })
+                .find({ resourceLinkId })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextId === contextId)
+                .filter(p => p.resourceLinkId === resourceLinkId)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
