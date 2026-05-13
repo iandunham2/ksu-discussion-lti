@@ -510,6 +510,24 @@
                                 <div><strong>Long Pauses:</strong> ${ta.longPauseCount || 0}</div>
                             </div>
                             
+                            <div class="grade-section" style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+                                <h4 style="margin: 0 0 10px 0;">Grade Student${sub.grade != null ? ` — Current: ${sub.grade}/100` : ''}</h4>
+                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                    <label style="font-weight: bold;">Score (0-100):</label>
+                                    <input type="number" id="grade-input-${index}" min="0" max="100" value="${sub.grade || ''}" 
+                                        style="width: 80px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+                                    <label style="font-weight: bold;">Feedback:</label>
+                                    <input type="text" id="feedback-input-${index}" placeholder="Optional feedback" value="${sub.gradeFeedback || ''}"
+                                        style="flex: 1; min-width: 150px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+                                    <button onclick="submitGrade('${sub.authorId}', ${index})" 
+                                        style="padding: 8px 16px; background: #ffc520; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+                                        Send Grade to D2L
+                                    </button>
+                                </div>
+                                <div id="grade-status-${index}" style="margin-top: 8px; font-size: 0.9em;"></div>
+                                ${sub.gradedAt ? `<div style="margin-top: 5px; font-size: 0.85em; color: #666;">Last graded: ${new Date(sub.gradedAt).toLocaleString()} by ${sub.gradedBy || 'instructor'}</div>` : ''}
+                            </div>
+                            
                             <details style="margin-top: 15px;">
                                 <summary style="cursor: pointer; font-weight: bold; padding: 8px;">Raw Typing Analytics JSON</summary>
                                 <pre style="background: #f8f9fa; padding: 15px; border-radius: 8px; overflow-x: auto; max-height: 300px; font-size: 0.8em;">
@@ -653,6 +671,41 @@ ${JSON.stringify(sub.typingAnalytics, null, 2)}
             
             const btn = event.target;
             btn.textContent = details.classList.contains('expanded') ? 'Hide Details' : 'View Full Details';
+        }
+
+        async function submitGrade(authorId, index) {
+            const scoreInput = document.getElementById(`grade-input-${index}`);
+            const feedbackInput = document.getElementById(`feedback-input-${index}`);
+            const statusDiv = document.getElementById(`grade-status-${index}`);
+            const score = parseInt(scoreInput.value);
+
+            if (isNaN(score) || score < 0 || score > 100) {
+                statusDiv.innerHTML = '<span style="color: #e74c3c;">Please enter a score between 0 and 100</span>';
+                return;
+            }
+
+            statusDiv.innerHTML = '<span style="color: #666;">Sending grade to D2L...</span>';
+
+            try {
+                const response = await fetch('/api/instructor/grade', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        authorId,
+                        score,
+                        feedback: feedbackInput.value || ''
+                    })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    statusDiv.innerHTML = `<span style="color: #27ae60; font-weight: bold;">✅ ${result.message}</span>`;
+                } else {
+                    statusDiv.innerHTML = `<span style="color: #e74c3c;">❌ ${result.error}</span>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<span style="color: #e74c3c;">❌ Network error. Please try again.</span>';
+            }
         }
 
         // Fetch context info

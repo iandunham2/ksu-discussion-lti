@@ -47,7 +47,7 @@ if (isDev) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection;
+let db, postsCollection, draftsCollection, outcomesCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -59,11 +59,14 @@ async function connectDatabase() {
         db = mongoClient.db('ksu-discussion');
         postsCollection = db.collection('posts');
         draftsCollection = db.collection('drafts');
+        outcomesCollection = db.collection('outcomes');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
+        await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
         await postsCollection.createIndex({ parentId: 1 });
         await postsCollection.createIndex({ authorEmail: 1 });
         await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
+        await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
 
         console.log('✅ MongoDB connected');
     } catch (error) {
@@ -147,7 +150,10 @@ app.post('/lti/launch', (req, res) => {
             resourceLinkId: req.body.resource_link_id || 'default',
             resourceLinkTitle: req.body.resource_link_title || 'Discussion Board',
             consumerKey: req.body.oauth_consumer_key,
-            returnUrl: req.body.launch_presentation_return_url || ''
+            returnUrl: req.body.launch_presentation_return_url || '',
+            // LTI Outcomes Service (for grade passback)
+            outcomeServiceUrl: req.body.lis_outcome_service_url || '',
+            resultSourcedId: req.body.lis_result_sourcedid || ''
         };
 
         // Determine if user is instructor
@@ -164,8 +170,33 @@ app.post('/lti/launch', (req, res) => {
             contextId: ltiData.contextId,
             contextTitle: ltiData.contextTitle,
             resourceLinkId: ltiData.resourceLinkId,
-            resourceLinkTitle: ltiData.resourceLinkTitle
+            resourceLinkTitle: ltiData.resourceLinkTitle,
+            outcomeServiceUrl: ltiData.outcomeServiceUrl,
+            resultSourcedId: ltiData.resultSourcedId
         };
+
+        // Store outcomes data for grade passback (students only)
+        if (!isInstructor && ltiData.outcomeServiceUrl && ltiData.resultSourcedId) {
+            const outcomesDoc = {
+                userId: ltiData.userId,
+                userName: ltiData.userName,
+                userEmail: ltiData.userEmail,
+                resourceLinkId: ltiData.resourceLinkId,
+                outcomeServiceUrl: ltiData.outcomeServiceUrl,
+                resultSourcedId: ltiData.resultSourcedId,
+                updatedAt: new Date().toISOString()
+            };
+            if (outcomesCollection) {
+                outcomesCollection.updateOne(
+                    { userId: ltiData.userId, resourceLinkId: ltiData.resourceLinkId },
+                    { $set: outcomesDoc },
+                    { upsert: true }
+                ).catch(e => console.error('Failed to store outcomes data:', e));
+            } else {
+                global.inMemoryOutcomes = global.inMemoryOutcomes || {};
+                global.inMemoryOutcomes[`${ltiData.userId}:${ltiData.resourceLinkId}`] = outcomesDoc;
+            }
+        }
 
         req.session.save((err) => {
             if (err) console.error('Session save error:', err);
@@ -547,6 +578,155 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
         res.status(500).json({ error: 'Failed to load posts' });
     }
 });
+
+// ======================
+// API: Grade Passback
+// ======================
+
+app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
+    try {
+        const { authorId, score, feedback } = req.body;
+        const resourceLinkId = req.session.user.resourceLinkId;
+
+        if (typeof score !== 'number' || score < 0 || score > 100) {
+            return res.status(400).json({ error: 'Score must be between 0 and 100' });
+        }
+
+        // Find the student's outcomes data
+        let outcomesData;
+        if (outcomesCollection) {
+            outcomesData = await outcomesCollection.findOne({ userId: authorId, resourceLinkId });
+        } else {
+            outcomesData = (global.inMemoryOutcomes || {})[`${authorId}:${resourceLinkId}`];
+        }
+
+        if (!outcomesData || !outcomesData.outcomeServiceUrl || !outcomesData.resultSourcedId) {
+            return res.status(400).json({ error: 'Grade passback not available for this student. They must launch the tool from D2L first.' });
+        }
+
+        // Send grade to D2L via LTI Outcomes Service
+        const normalizedScore = score / 100; // LTI expects 0.0-1.0
+        const success = await sendLTIGrade(
+            outcomesData.outcomeServiceUrl,
+            outcomesData.resultSourcedId,
+            normalizedScore
+        );
+
+        if (!success) {
+            return res.status(500).json({ error: 'Failed to send grade to D2L. Please try again.' });
+        }
+
+        // Store grade locally
+        if (postsCollection) {
+            await postsCollection.updateMany(
+                { authorId, resourceLinkId },
+                { $set: { grade: score, gradeFeedback: feedback || '', gradedAt: new Date().toISOString(), gradedBy: req.session.user.name } }
+            );
+        }
+
+        console.log(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${resourceLinkId}`);
+        res.json({ success: true, message: `Grade of ${score}/100 sent to D2L gradebook` });
+    } catch (error) {
+        console.error('Grade submission error:', error);
+        res.status(500).json({ error: 'Failed to submit grade' });
+    }
+});
+
+function sendLTIGrade(serviceUrl, sourcedId, score) {
+    return new Promise((resolve) => {
+        const oauthSign = require('oauth-sign');
+        const https = require('https');
+        const http = require('http');
+        const url = require('url');
+
+        const messageId = crypto.randomBytes(16).toString('hex');
+        const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
+<imsx_POXEnvelopeRequest xmlns="http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0">
+  <imsx_POXHeader>
+    <imsx_POXRequestHeaderInfo>
+      <imsx_version>V1.0</imsx_version>
+      <imsx_messageIdentifier>${messageId}</imsx_messageIdentifier>
+    </imsx_POXRequestHeaderInfo>
+  </imsx_POXHeader>
+  <imsx_POXBody>
+    <replaceResultRequest>
+      <resultRecord>
+        <sourcedGUID>
+          <sourcedId>${sourcedId}</sourcedId>
+        </sourcedGUID>
+        <result>
+          <resultScore>
+            <language>en</language>
+            <textString>${score.toFixed(4)}</textString>
+          </resultScore>
+        </result>
+      </resultRecord>
+    </replaceResultRequest>
+  </imsx_POXBody>
+</imsx_POXEnvelopeRequest>`;
+
+        const parsedUrl = url.parse(serviceUrl);
+        const timestamp = Math.floor(Date.now() / 1000);
+        const nonce = crypto.randomBytes(16).toString('hex');
+
+        const oauthParams = {
+            oauth_consumer_key: config.lti.consumerKey,
+            oauth_nonce: nonce,
+            oauth_signature_method: 'HMAC-SHA1',
+            oauth_timestamp: timestamp,
+            oauth_version: '1.0',
+            oauth_body_hash: crypto.createHash('sha1').update(xmlBody).digest('base64')
+        };
+
+        const signature = oauthSign.hmacsign(
+            'POST',
+            serviceUrl,
+            oauthParams,
+            config.lti.consumerSecret
+        );
+
+        const authHeader = `OAuth oauth_consumer_key="${encodeURIComponent(oauthParams.oauth_consumer_key)}",` +
+            `oauth_nonce="${encodeURIComponent(nonce)}",` +
+            `oauth_signature="${encodeURIComponent(signature)}",` +
+            `oauth_signature_method="HMAC-SHA1",` +
+            `oauth_timestamp="${timestamp}",` +
+            `oauth_version="1.0",` +
+            `oauth_body_hash="${encodeURIComponent(oauthParams.oauth_body_hash)}"`;
+
+        const options = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port,
+            path: parsedUrl.path,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/xml',
+                'Content-Length': Buffer.byteLength(xmlBody),
+                'Authorization': authHeader
+            }
+        };
+
+        const transport = parsedUrl.protocol === 'https:' ? https : http;
+        const apiReq = transport.request(options, (apiRes) => {
+            let data = '';
+            apiRes.on('data', chunk => data += chunk);
+            apiRes.on('end', () => {
+                const success = data.includes('success') && apiRes.statusCode >= 200 && apiRes.statusCode < 300;
+                if (!success) {
+                    console.error('LTI grade passback failed:', apiRes.statusCode, data.substring(0, 500));
+                }
+                resolve(success);
+            });
+        });
+
+        apiReq.on('error', (e) => {
+            console.error('LTI grade passback error:', e.message);
+            resolve(false);
+        });
+        apiReq.setTimeout(15000, () => { apiReq.destroy(); resolve(false); });
+        apiReq.write(xmlBody);
+        apiReq.end();
+    });
+}
 
 // ======================
 // STATIC FILES
