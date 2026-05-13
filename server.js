@@ -33,8 +33,8 @@ const config = {
     session: {
         secret: process.env.SESSION_SECRET || 'dev-session-secret-change-in-production'
     },
-    gptzero: {
-        apiKey: process.env.GPTZERO_API_KEY || ''
+    sapling: {
+        apiKey: process.env.SAPLING_API_KEY || ''
     },
     instructorRoles: ['Instructor', 'Administrator', 'TeachingAssistant', 'ContentDeveloper', 'urn:lti:role:ims/lis/Instructor', 'urn:lti:instrole:ims/lis/Administrator']
 };
@@ -453,11 +453,11 @@ app.get('/api/load-draft', requireAuth, async (req, res) => {
 });
 
 // ======================
-// API: AI Detection (GPTZero)
+// API: AI Detection (Sapling)
 // ======================
 
 async function runAIDetection(text) {
-    if (isDev && !config.gptzero.apiKey) {
+    if (isDev && !config.sapling.apiKey) {
         // Mock response in dev mode
         const fakeProb = Math.random() * 0.3;
         return {
@@ -470,19 +470,18 @@ async function runAIDetection(text) {
         };
     }
 
-    if (!config.gptzero.apiKey) return null;
+    if (!config.sapling.apiKey) return null;
 
     return new Promise((resolve) => {
         const https = require('https');
-        const postData = JSON.stringify({ document: text });
+        const postData = JSON.stringify({ key: config.sapling.apiKey, text });
 
         const options = {
-            hostname: 'api.gptzero.me',
-            path: '/v2/predict/text',
+            hostname: 'api.sapling.ai',
+            path: '/api/v1/aidetect',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-api-key': config.gptzero.apiKey,
                 'Content-Length': Buffer.byteLength(postData)
             }
         };
@@ -492,14 +491,30 @@ async function runAIDetection(text) {
             apiRes.on('data', chunk => data += chunk);
             apiRes.on('end', () => {
                 try {
-                    resolve(JSON.parse(data));
+                    const result = JSON.parse(data);
+                    // Normalize Sapling response to match expected format
+                    // Sapling returns { score: 0-1, sentence_scores: [...] }
+                    const aiScore = result.score || 0;
+                    resolve({
+                        documents: [{
+                            completely_generated_prob: aiScore,
+                            average_generated_prob: aiScore,
+                            class: aiScore > 0.5 ? 'ai' : 'human',
+                            sentences: (result.sentence_scores || []).map(s => ({
+                                sentence: s.sentence,
+                                generated_prob: s.score
+                            }))
+                        }],
+                        provider: 'sapling'
+                    });
                 } catch (e) {
+                    console.error('Sapling parse error:', e.message);
                     resolve(null);
                 }
             });
         });
 
-        apiReq.on('error', () => resolve(null));
+        apiReq.on('error', (e) => { console.error('Sapling API error:', e.message); resolve(null); });
         apiReq.setTimeout(10000, () => { apiReq.destroy(); resolve(null); });
         apiReq.write(postData);
         apiReq.end();
