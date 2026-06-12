@@ -97,158 +97,262 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
         }
 
-        .submission-card {
+        /* ── Student card ── */
+        .student-card {
             border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            transition: all 0.3s ease;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            overflow: hidden;
         }
 
-        .submission-card:hover {
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
-        }
+        .student-card.high-risk  { border-color: #ff4444; }
+        .student-card.medium-risk { border-color: #ffaa00; }
+        .student-card.low-risk   { border-color: #00cc66; }
 
-        .submission-card.high-risk {
-            border-color: #ff4444;
-            background: #fff5f5;
-        }
-
-        .submission-card.medium-risk {
-            border-color: #ffaa00;
-            background: #fffbf0;
-        }
-
-        .submission-card.low-risk {
-            border-color: #00cc66;
-            background: #f0fff8;
-        }
-
-        .submission-header {
+        .student-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #e0e0e0;
+            padding: 16px 20px;
+            cursor: pointer;
+            user-select: none;
         }
 
+        .student-card.high-risk  .student-header { background: #fff5f5; }
+        .student-card.medium-risk .student-header { background: #fffbf0; }
+        .student-card.low-risk   .student-header { background: #f0fff8; }
+
+        .student-header:hover { filter: brightness(0.97); }
+
         .student-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .student-meta {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .student-header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chevron {
+            font-size: 1.1em;
+            transition: transform 0.2s;
+        }
+
+        .student-body {
+            display: none;
+            padding: 0 20px 20px;
+            background: #fff;
+        }
+
+        .student-body.expanded { display: block; }
+
+        /* ── Post within a student card ── */
+        .post-block {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-top: 16px;
+            overflow: hidden;
+        }
+
+        .post-block-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: #f8f9fa;
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #444;
+        }
+
+        .post-block-body {
+            padding: 12px 14px;
+        }
+
+        .reply-block {
+            border-left: 3px solid #ccc;
+            margin: 10px 0 0 20px;
+            border-radius: 0 8px 8px 0;
+            overflow: hidden;
+        }
+
+        .reply-block .post-block-header { background: #f0f0f0; }
+
+        /* ── Risk badge ── */
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.85em;
+        }
+
+        .risk-badge.high   { background: #ff4444; color: white; }
+        .risk-badge.medium { background: #ffaa00; color: white; }
+        .risk-badge.low    { background: #00cc66; color: white; }
+
+        /* ── Metrics grid ── */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .metric {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .metric-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
             font-size: 1.3em;
             font-weight: bold;
             color: #333;
         }
 
-        .timestamp {
-            color: #666;
-            font-size: 0.9em;
-        }
-
-        .risk-badge {
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 0.9em;
-        }
-
-        .risk-badge.high {
-            background: #ff4444;
-            color: white;
-        }
-
-        .risk-badge.medium {
-            background: #ffaa00;
-            color: white;
-        }
-
-        .risk-badge.low {
-            background: #00cc66;
-            color: white;
-        }
-
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .metric {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-        }
-
-        .metric-label {
-            font-size: 0.85em;
-            color: #666;
-            margin-bottom: 5px;
-        }
-
-        .metric-value {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #333;
-        }
-
+        /* ── Post text ── */
         .text-preview {
             background: #f8f9fa;
-            padding: 15px;
+            padding: 12px;
             border-radius: 8px;
-            margin-top: 15px;
+            margin-top: 10px;
             max-height: 100px;
             overflow: hidden;
             position: relative;
+            font-size: 0.9em;
         }
 
         .text-preview::after {
             content: '';
             position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 30px;
+            bottom: 0; left: 0; right: 0;
+            height: 28px;
             background: linear-gradient(transparent, #f8f9fa);
         }
 
+        .text-full {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+        }
+
+        /* ── Expand post details button ── */
         .expand-btn {
             background: #FFC72C;
             color: #000;
             border: none;
-            padding: 10px 20px;
+            padding: 7px 16px;
             border-radius: 5px;
             cursor: pointer;
-            margin-top: 10px;
-            font-size: 0.9em;
+            margin-top: 8px;
+            font-size: 0.85em;
             font-weight: 600;
         }
 
-        .expand-btn:hover {
-            background: #e6b325;
-        }
+        .expand-btn:hover { background: #e6b325; }
 
         .details {
             display: none;
-            margin-top: 15px;
-            padding-top: 15px;
+            margin-top: 12px;
+            padding-top: 12px;
             border-top: 1px solid #e0e0e0;
         }
 
-        .details.expanded {
-            display: block;
-        }
+        .details.expanded { display: block; }
 
+        /* ── Keystroke log ── */
         .keystroke-log {
-            max-height: 300px;
+            max-height: 250px;
             overflow-y: auto;
             background: #f8f9fa;
-            padding: 15px;
+            padding: 12px;
             border-radius: 8px;
             font-family: monospace;
-            font-size: 0.85em;
+            font-size: 0.82em;
+            white-space: pre;
         }
+
+        /* ── Grade panel (one per student) ── */
+        .grade-panel {
+            margin-top: 20px;
+            padding: 16px;
+            background: #fff3cd;
+            border-radius: 8px;
+            border: 1px solid #ffc107;
+        }
+
+        .grade-panel h4 { margin: 0 0 12px 0; font-size: 1em; }
+
+        .grade-panel-inputs {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .grade-panel-inputs label { font-weight: bold; font-size: 0.9em; }
+
+        .grade-panel-inputs input[type=number] {
+            width: 75px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .grade-panel-inputs input[type=text] {
+            flex: 1;
+            min-width: 150px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .grade-submit-btn {
+            padding: 8px 16px;
+            background: #ffc520;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .grade-submit-btn:hover { background: #e6b320; }
+
+        .grade-status {
+            margin-top: 8px;
+            font-size: 0.88em;
+        }
+
+        .grade-meta {
+            margin-top: 6px;
+            font-size: 0.82em;
+            color: #666;
+        }
+
+        .timestamp { color: #666; font-size: 0.85em; }
 
         .refresh-btn {
             background: #000;
@@ -313,52 +417,85 @@
     </div>
 
     <script>
-        const expandedCards = new Set();
+        const expandedStudents = new Set();
+        const expandedPosts = new Set();
 
         async function loadSubmissions() {
             try {
                 const response = await fetch('/api/instructor/posts');
                 const submissions = await response.json();
-                
                 displaySubmissions(submissions);
                 updateStats(submissions);
             } catch (error) {
                 console.error('Error loading submissions:', error);
-                document.getElementById('submissions-list').innerHTML = 
+                document.getElementById('submissions-list').innerHTML =
                     '<div class="no-submissions"><h2>Error loading submissions</h2><p>' + error.message + '</p></div>';
             }
         }
 
         function updateStats(submissions) {
-            document.getElementById('total-submissions').textContent = submissions.length;
-            
+            // Stats count unique students, not posts
+            const byStudent = groupByStudent(submissions);
+            const studentIds = Object.keys(byStudent);
+            document.getElementById('total-submissions').textContent = studentIds.length;
+
             let highRisk = 0, mediumRisk = 0, lowRisk = 0;
-            
-            submissions.forEach(sub => {
-                const risk = calculateRisk(sub);
+            studentIds.forEach(sid => {
+                const risk = worstRisk(byStudent[sid].posts);
                 if (risk === 'high') highRisk++;
                 else if (risk === 'medium') mediumRisk++;
                 else lowRisk++;
             });
-            
             document.getElementById('high-risk-count').textContent = highRisk;
             document.getElementById('medium-risk-count').textContent = mediumRisk;
             document.getElementById('low-risk-count').textContent = lowRisk;
         }
 
-        function calculateRisk(submission) {
-            return calculateCompositeRisk(submission).risk;
+        function groupByStudent(submissions) {
+            const map = {};
+            submissions.forEach(sub => {
+                const sid = sub.authorId || sub.authorEmail || 'unknown';
+                if (!map[sid]) {
+                    map[sid] = {
+                        authorId: sub.authorId,
+                        authorName: sub.authorName || sub.studentDisplayName || sub.studentName || 'Anonymous',
+                        authorEmail: sub.authorEmail || sub.studentEmail || '',
+                        posts: [],
+                        grade: sub.grade,
+                        gradeFeedback: sub.gradeFeedback || '',
+                        gradedAt: sub.gradedAt,
+                        gradedBy: sub.gradedBy
+                    };
+                }
+                map[sid].posts.push(sub);
+                // Use most recent grade info
+                if (sub.gradedAt && (!map[sid].gradedAt || sub.gradedAt > map[sid].gradedAt)) {
+                    map[sid].grade = sub.grade;
+                    map[sid].gradeFeedback = sub.gradeFeedback || '';
+                    map[sid].gradedAt = sub.gradedAt;
+                    map[sid].gradedBy = sub.gradedBy;
+                }
+            });
+            return map;
+        }
+
+        function worstRisk(posts) {
+            let worst = 'low';
+            posts.forEach(p => {
+                const r = calculateCompositeRisk(p).risk;
+                if (r === 'high') worst = 'high';
+                else if (r === 'medium' && worst !== 'high') worst = 'medium';
+            });
+            return worst;
         }
 
         function calculateCompositeRisk(submission) {
-            // Use server-persisted score if available
             if (typeof submission.compositeScore === 'number') {
                 return {
                     score: submission.compositeScore,
                     risk: submission.compositeRisk || (submission.compositeScore >= 60 ? 'high' : submission.compositeScore >= 30 ? 'medium' : 'low')
                 };
             }
-            // Fallback: compute client-side for older submissions
             const ta = submission.typingAnalytics || {};
             const aiProb = submission.aiResults?.documents?.[0]?.completely_generated_prob || 0;
             const typingSuspicion = ta.suspicionScore || 0;
@@ -369,135 +506,66 @@
             const pasteAttempts = ta.pasteAttempts || 0;
 
             let score = 0;
-
-            // GPTZero AI probability (weighted 35%)
             score += aiProb * 35;
-
-            // Typing suspicion score (weighted 25%)
             score += (typingSuspicion / 100) * 25;
-
-            // Focus changes with text growth (weighted 15%)
             score += Math.min(suspiciousRefocusCount * 5, 15);
-
-            // DOM injections (weighted 10%)
             score += Math.min(injectionCount * 5, 10);
-
-            // Low correction ratio — suspiciously clean typing (weighted 8%)
-            if (correctionRatio < 0.01 && (submission.totalKeystrokes || 0) > 100) {
-                score += 8;
-            } else if (correctionRatio < 0.03 && (submission.totalKeystrokes || 0) > 100) {
-                score += 4;
-            }
-
-            // WPM spikes (weighted 5%)
+            if (correctionRatio < 0.01 && (submission.totalKeystrokes || 0) > 100) score += 8;
+            else if (correctionRatio < 0.03 && (submission.totalKeystrokes || 0) > 100) score += 4;
             score += Math.min(wpmSpikeCount * 2.5, 5);
-
-            // Paste attempts (weighted 2%)
             score += Math.min(pasteAttempts * 1, 2);
-
             score = Math.min(100, Math.round(score));
-
-            return {
-                score,
-                risk: score >= 60 ? 'high' : score >= 30 ? 'medium' : 'low'
-            };
+            return { score, risk: score >= 60 ? 'high' : score >= 30 ? 'medium' : 'low' };
         }
 
-        function displaySubmissions(submissions) {
-            const container = document.getElementById('submissions-list');
-            
-            if (submissions.length === 0) {
-                container.innerHTML = '<div class="no-submissions"><h2>No submissions yet</h2><p>Student submissions will appear here</p></div>';
-                return;
-            }
-            
-            submissions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            
-            const html = submissions.map((sub, index) => {
-                const composite = calculateCompositeRisk(sub);
-                const risk = composite.risk;
-                const ta = sub.typingAnalytics || {};
-                const aiProb = (sub.aiResults?.documents?.[0]?.completely_generated_prob || 0) * 100;
-                const typingSuspicion = ta.suspicionScore || 0;
-                const avgDelay = ta.avgDelay || 0;
-                const pasteAttempts = ta.pasteAttempts || 0;
-                const wordCount = sub.wordCount || 0;
-                const totalKeystrokes = sub.totalKeystrokes || 0;
-                const sessionDuration = sub.sessionDuration ? Math.round(sub.sessionDuration / 60000) : 0;
-                const studentName = sub.authorName || sub.studentDisplayName || sub.studentName || 'Anonymous';
-                const studentEmail = sub.authorEmail || sub.studentEmail || '';
-                const postType = sub.parentId ? '↩️ Reply' : '📝 Post';
-                const correctionRatio = ta.correctionRatio ?? '-';
-                const suspiciousRefocuses = ta.suspiciousRefocusCount || 0;
-                const injections = ta.suspectedInjections?.length || 0;
-                const wpmSpikes = ta.wpmSpikeCount || 0;
-                
-                return `
-                    <div class="submission-card ${risk}-risk">
-                        <div class="submission-header">
-                            <div>
-                                <div class="student-name">${postType} ${studentName}</div>
-                                <div class="timestamp">${studentEmail} &bull; ${new Date(sub.timestamp).toLocaleString()}</div>
-                            </div>
-                            <span class="risk-badge ${risk}">${risk.toUpperCase()} RISK (${composite.score}/100)</span>
-                        </div>
-                        
+        function renderPostBlock(sub, postKey, isReply) {
+            const composite = calculateCompositeRisk(sub);
+            const risk = composite.risk;
+            const ta = sub.typingAnalytics || {};
+            const aiProb = (sub.aiResults?.documents?.[0]?.completely_generated_prob || 0) * 100;
+            const typingSuspicion = ta.suspicionScore || 0;
+            const correctionRatio = ta.correctionRatio ?? '-';
+            const suspiciousRefocuses = ta.suspiciousRefocusCount || 0;
+            const injections = ta.suspectedInjections?.length || 0;
+            const wpmSpikes = ta.wpmSpikeCount || 0;
+            const pasteAttempts = ta.pasteAttempts || 0;
+            const wordCount = sub.wordCount || 0;
+            const totalKeystrokes = sub.totalKeystrokes || 0;
+            const sessionDuration = sub.sessionDuration ? Math.round(sub.sessionDuration / 60000) : 0;
+            const avgDelay = ta.avgDelay || 0;
+            const blockClass = isReply ? 'reply-block' : 'post-block';
+            const label = isReply ? '↩️ Reply' : '📝 Original Post';
+
+            return `
+                <div class="${blockClass}">
+                    <div class="post-block-header">
+                        <span>${label} &bull; ${new Date(sub.timestamp).toLocaleString()}</span>
+                        <span class="risk-badge ${risk}">${risk.toUpperCase()} (${composite.score}/100)</span>
+                    </div>
+                    <div class="post-block-body">
                         <div class="metrics">
-                            <div class="metric">
-                                <div class="metric-label">AI Probability</div>
-                                <div class="metric-value">${aiProb.toFixed(1)}%</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Typing Suspicion</div>
-                                <div class="metric-value">${typingSuspicion}%</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Correction Ratio</div>
-                                <div class="metric-value">${typeof correctionRatio === 'number' ? (correctionRatio * 100).toFixed(1) + '%' : correctionRatio}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Tab Switches (Suspicious)</div>
-                                <div class="metric-value">${suspiciousRefocuses}${injections > 0 ? ' + ' + injections + ' inject' : ''}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">WPM Spikes / Paste Attempts</div>
-                                <div class="metric-value">${wpmSpikes} / ${pasteAttempts}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Words / Keystrokes / ${sessionDuration}min</div>
-                                <div class="metric-value">${wordCount} / ${totalKeystrokes}</div>
-                            </div>
+                            <div class="metric"><div class="metric-label">AI Probability</div><div class="metric-value">${aiProb.toFixed(1)}%</div></div>
+                            <div class="metric"><div class="metric-label">Typing Suspicion</div><div class="metric-value">${typingSuspicion}%</div></div>
+                            <div class="metric"><div class="metric-label">Correction Ratio</div><div class="metric-value">${typeof correctionRatio === 'number' ? (correctionRatio * 100).toFixed(1) + '%' : '-'}</div></div>
+                            <div class="metric"><div class="metric-label">Tab Switches / Injections</div><div class="metric-value">${suspiciousRefocuses} / ${injections}</div></div>
+                            <div class="metric"><div class="metric-label">WPM Spikes / Pastes</div><div class="metric-value">${wpmSpikes} / ${pasteAttempts}</div></div>
+                            <div class="metric"><div class="metric-label">Words / Keys / ${sessionDuration}min</div><div class="metric-value">${wordCount} / ${totalKeystrokes}</div></div>
                         </div>
-                        
-                        <div class="text-preview">
-                            ${(sub.text || '').substring(0, 200)}...
-                        </div>
-                        
-                        <button class="expand-btn" onclick="toggleDetails(${index})">View Full Details</button>
-                        
-                        <div class="details" id="details-${index}">
-                            <h4>GPTZero AI Detection Results:</h4>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <div class="text-preview">${(sub.text || '').substring(0, 200)}...</div>
+                        <button class="expand-btn" onclick="togglePost('${postKey}')">View Full Details</button>
+                        <div class="details" id="post-details-${postKey}">
+                            <h4>AI Detection Results:</h4>
+                            <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
                                 ${formatGPTZeroResults(sub.aiResults)}
                             </div>
-                            
                             <h4>Full Text:</h4>
-                            <div class="text-preview" style="max-height: none;">
-                                ${sub.text || 'No text available'}
-                            </div>
-                            
-                            <h4 style="margin-top: 20px;">Keystroke Log (${sub.keystrokeLog?.length || 0} keystrokes):</h4>
-                            <div class="keystroke-log">
-                                ${formatKeystrokeLog(sub.keystrokeLog)}
-                            </div>
-                            
-                            <h4 style="margin-top: 20px;">Session Timeline:</h4>
-                            <div class="keystroke-log">
-                                ${formatTimeline(sub.typingAnalytics?.sessionTimeline)}
-                            </div>
-                            
-                            <h4 style="margin-top: 20px;">Detection Breakdown:</h4>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em;">
+                            <div class="text-full">${sub.text || 'No text available'}</div>
+                            <h4 style="margin-top: 15px;">Keystroke Log (${sub.keystrokeLog?.length || 0} entries):</h4>
+                            <div class="keystroke-log">${formatKeystrokeLog(sub.keystrokeLog)}</div>
+                            <h4 style="margin-top: 15px;">Session Timeline:</h4>
+                            <div class="keystroke-log">${formatTimeline(sub.typingAnalytics?.sessionTimeline)}</div>
+                            <h4 style="margin-top: 15px;">Detection Breakdown:</h4>
+                            <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.88em;">
                                 <div><strong>Composite Score:</strong> ${composite.score}/100</div>
                                 <div><strong>AI Probability:</strong> ${aiProb.toFixed(1)}%</div>
                                 <div><strong>Typing Suspicion:</strong> ${typingSuspicion}%</div>
@@ -511,31 +579,84 @@
                                 <div><strong>Rapid Bursts:</strong> ${ta.rapidBurstCount || 0}</div>
                                 <div><strong>Long Pauses:</strong> ${ta.longPauseCount || 0}</div>
                             </div>
-                            
-                            <div class="grade-section" style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
-                                <h4 style="margin: 0 0 10px 0;">Grade Student${sub.grade != null ? ` — Current: ${sub.grade}/100` : ''}</h4>
-                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                    <label style="font-weight: bold;">Score (0-100):</label>
-                                    <input type="number" id="grade-input-${index}" min="0" max="100" value="${sub.grade || ''}" 
-                                        style="width: 80px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
-                                    <label style="font-weight: bold;">Feedback:</label>
-                                    <input type="text" id="feedback-input-${index}" placeholder="Optional feedback" value="${sub.gradeFeedback || ''}"
-                                        style="flex: 1; min-width: 150px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
-                                    <button onclick="submitGrade('${sub.authorId}', ${index})" 
-                                        style="padding: 8px 16px; background: #ffc520; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+                            <details style="margin-top: 12px;">
+                                <summary style="cursor: pointer; font-weight: bold; padding: 6px;">Raw Typing Analytics JSON</summary>
+                                <pre style="background: #f8f9fa; padding: 12px; border-radius: 8px; overflow-x: auto; max-height: 250px; font-size: 0.78em;">${JSON.stringify(sub.typingAnalytics, null, 2)}</pre>
+                            </details>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function displaySubmissions(submissions) {
+            const container = document.getElementById('submissions-list');
+
+            if (submissions.length === 0) {
+                container.innerHTML = '<div class="no-submissions"><h2>No submissions yet</h2><p>Student submissions will appear here</p></div>';
+                return;
+            }
+
+            const byStudent = groupByStudent(submissions);
+
+            const html = Object.values(byStudent).map(student => {
+                const sid = student.authorId || student.authorEmail;
+                const risk = worstRisk(student.posts);
+
+                // Separate top-level posts from replies
+                const topPosts = student.posts.filter(p => !p.parentId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                const replies = student.posts.filter(p => p.parentId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+                // Render posts: each top post followed by its replies
+                let postsHtml = '';
+                topPosts.forEach((post, i) => {
+                    const postKey = `${sid}-top-${i}`;
+                    postsHtml += renderPostBlock(post, postKey, false);
+                    // Attach any replies to this top post
+                    replies.filter(r => r.parentId === post.id).forEach((reply, j) => {
+                        const replyKey = `${sid}-reply-${i}-${j}`;
+                        postsHtml += renderPostBlock(reply, replyKey, true);
+                    });
+                });
+                // Orphan replies (parent not found in this student's top posts)
+                replies.filter(r => !topPosts.find(p => p.id === r.parentId)).forEach((reply, j) => {
+                    const replyKey = `${sid}-orphan-${j}`;
+                    postsHtml += renderPostBlock(reply, replyKey, true);
+                });
+
+                const gradeLabel = student.grade != null ? ` — Current: ${student.grade}/100` : '';
+                const gradedAtHtml = student.gradedAt
+                    ? `<div class="grade-meta">Last graded: ${new Date(student.gradedAt).toLocaleString()} by ${student.gradedBy || 'instructor'}</div>`
+                    : '';
+
+                return `
+                    <div class="student-card ${risk}-risk">
+                        <div class="student-header" onclick="toggleStudent('${sid}')">
+                            <div>
+                                <div class="student-name">${student.authorName}</div>
+                                <div class="student-meta">${student.authorEmail} &bull; ${student.posts.length} submission${student.posts.length !== 1 ? 's' : ''}</div>
+                            </div>
+                            <div class="student-header-right">
+                                <span class="risk-badge ${risk}">${risk.toUpperCase()} RISK</span>
+                                <span class="chevron" id="chevron-${sid}">▶</span>
+                            </div>
+                        </div>
+                        <div class="student-body" id="student-body-${sid}">
+                            ${postsHtml}
+                            <div class="grade-panel">
+                                <h4>Grade Student${gradeLabel}</h4>
+                                <div class="grade-panel-inputs">
+                                    <label>Score (0–100):</label>
+                                    <input type="number" id="grade-input-${sid}" min="0" max="100" value="${student.grade != null ? student.grade : ''}">
+                                    <label>Feedback:</label>
+                                    <input type="text" id="feedback-input-${sid}" placeholder="Optional feedback" value="${student.gradeFeedback || ''}">
+                                    <button class="grade-submit-btn" onclick="submitGrade('${student.authorId}', '${sid}')">
                                         Send Grade to D2L
                                     </button>
                                 </div>
-                                <div id="grade-status-${index}" style="margin-top: 8px; font-size: 0.9em;"></div>
-                                ${sub.gradedAt ? `<div style="margin-top: 5px; font-size: 0.85em; color: #666;">Last graded: ${new Date(sub.gradedAt).toLocaleString()} by ${sub.gradedBy || 'instructor'}</div>` : ''}
+                                <div class="grade-status" id="grade-status-${sid}"></div>
+                                ${gradedAtHtml}
                             </div>
-                            
-                            <details style="margin-top: 15px;">
-                                <summary style="cursor: pointer; font-weight: bold; padding: 8px;">Raw Typing Analytics JSON</summary>
-                                <pre style="background: #f8f9fa; padding: 15px; border-radius: 8px; overflow-x: auto; max-height: 300px; font-size: 0.8em;">
-${JSON.stringify(sub.typingAnalytics, null, 2)}
-                                </pre>
-                            </details>
                         </div>
                     </div>
                 `;
@@ -543,13 +664,16 @@ ${JSON.stringify(sub.typingAnalytics, null, 2)}
 
             container.innerHTML = html;
 
-            expandedCards.forEach(index => {
-                const details = document.getElementById(`details-${index}`);
-                const btn = document.querySelector(`[onclick="toggleDetails(${index})"]`);
-                if (details) {
-                    details.classList.add('expanded');
-                    if (btn) btn.textContent = 'Hide Details';
-                }
+            // Restore expanded state
+            expandedStudents.forEach(sid => {
+                const body = document.getElementById(`student-body-${sid}`);
+                const chevron = document.getElementById(`chevron-${sid}`);
+                if (body) { body.classList.add('expanded'); if (chevron) chevron.style.transform = 'rotate(90deg)'; }
+            });
+            expandedPosts.forEach(key => {
+                const el = document.getElementById(`post-details-${key}`);
+                const btn = document.querySelector(`[onclick="togglePost('${key}')"]`);
+                if (el) { el.classList.add('expanded'); if (btn) btn.textContent = 'Hide Details'; }
             });
         }
 
@@ -678,24 +802,36 @@ ${JSON.stringify(sub.typingAnalytics, null, 2)}
             }).join('\n');
         }
 
-        function toggleDetails(index) {
-            const details = document.getElementById(`details-${index}`);
-            details.classList.toggle('expanded');
-            
-            if (details.classList.contains('expanded')) {
-                expandedCards.add(index);
+        function toggleStudent(sid) {
+            const body = document.getElementById(`student-body-${sid}`);
+            const chevron = document.getElementById(`chevron-${sid}`);
+            body.classList.toggle('expanded');
+            if (body.classList.contains('expanded')) {
+                expandedStudents.add(sid);
+                if (chevron) chevron.style.transform = 'rotate(90deg)';
             } else {
-                expandedCards.delete(index);
+                expandedStudents.delete(sid);
+                if (chevron) chevron.style.transform = '';
             }
-
-            const btn = event.target;
-            btn.textContent = details.classList.contains('expanded') ? 'Hide Details' : 'View Full Details';
         }
 
-        async function submitGrade(authorId, index) {
-            const scoreInput = document.getElementById(`grade-input-${index}`);
-            const feedbackInput = document.getElementById(`feedback-input-${index}`);
-            const statusDiv = document.getElementById(`grade-status-${index}`);
+        function togglePost(key) {
+            const details = document.getElementById(`post-details-${key}`);
+            const btn = document.querySelector(`[onclick="togglePost('${key}')"]`);
+            details.classList.toggle('expanded');
+            if (details.classList.contains('expanded')) {
+                expandedPosts.add(key);
+                if (btn) btn.textContent = 'Hide Details';
+            } else {
+                expandedPosts.delete(key);
+                if (btn) btn.textContent = 'View Full Details';
+            }
+        }
+
+        async function submitGrade(authorId, sid) {
+            const scoreInput = document.getElementById(`grade-input-${sid}`);
+            const feedbackInput = document.getElementById(`feedback-input-${sid}`);
+            const statusDiv = document.getElementById(`grade-status-${sid}`);
             const score = parseInt(scoreInput.value);
 
             if (isNaN(score) || score < 0 || score > 100) {
@@ -709,11 +845,7 @@ ${JSON.stringify(sub.typingAnalytics, null, 2)}
                 const response = await fetch('/api/instructor/grade', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        authorId,
-                        score,
-                        feedback: feedbackInput.value || ''
-                    })
+                    body: JSON.stringify({ authorId, score, feedback: feedbackInput.value || '' })
                 });
 
                 const result = await response.json();
