@@ -313,6 +313,8 @@
     </div>
 
     <script>
+        const expandedCards = new Set();
+
         async function loadSubmissions() {
             try {
                 const response = await fetch('/api/instructor/posts');
@@ -411,7 +413,7 @@
             
             submissions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
             
-            container.innerHTML = submissions.map((sub, index) => {
+            const html = submissions.map((sub, index) => {
                 const composite = calculateCompositeRisk(sub);
                 const risk = composite.risk;
                 const ta = sub.typingAnalytics || {};
@@ -538,6 +540,17 @@ ${JSON.stringify(sub.typingAnalytics, null, 2)}
                     </div>
                 `;
             }).join('');
+
+            container.innerHTML = html;
+
+            expandedCards.forEach(index => {
+                const details = document.getElementById(`details-${index}`);
+                const btn = document.querySelector(`[onclick="toggleDetails(${index})"]`);
+                if (details) {
+                    details.classList.add('expanded');
+                    if (btn) btn.textContent = 'Hide Details';
+                }
+            });
         }
 
         function formatGPTZeroResults(aiResults) {
@@ -669,6 +682,12 @@ ${JSON.stringify(sub.typingAnalytics, null, 2)}
             const details = document.getElementById(`details-${index}`);
             details.classList.toggle('expanded');
             
+            if (details.classList.contains('expanded')) {
+                expandedCards.add(index);
+            } else {
+                expandedCards.delete(index);
+            }
+
             const btn = event.target;
             btn.textContent = details.classList.contains('expanded') ? 'Hide Details' : 'View Full Details';
         }
