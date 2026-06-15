@@ -414,7 +414,13 @@
             <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
                 <button class="refresh-btn" onclick="loadSubmissions()" style="margin-bottom: 0;">🔄 Refresh Posts</button>
                 <div style="flex: 1; min-width: 250px;">
-                    <label for="thread-filter" style="font-weight: bold; margin-right: 10px;">Filter by Thread:</label>
+                    <label for="module-filter" style="font-weight: bold; margin-right: 10px;">Module:</label>
+                    <select id="module-filter" onchange="filterByModule()" style="padding: 10px; border-radius: 5px; border: 2px solid #FFC72C; background: white; font-size: 1em; min-width: 200px;">
+                        <option value="all">All Modules</option>
+                    </select>
+                </div>
+                <div style="flex: 1; min-width: 250px;">
+                    <label for="thread-filter" style="font-weight: bold; margin-right: 10px;">Thread:</label>
                     <select id="thread-filter" onchange="filterByThread()" style="padding: 10px; border-radius: 5px; border: 2px solid #FFC72C; background: white; font-size: 1em; min-width: 200px;">
                         <option value="all">All Threads</option>
                     </select>
@@ -428,7 +434,9 @@
         const expandedStudents = new Set();
         const expandedPosts = new Set();
         let allSubmissions = [];
+        let allModules = [];
         let allThreads = [];
+        let currentModuleFilter = 'all';
         let currentThreadFilter = 'all';
 
         async function loadSubmissions() {
@@ -437,17 +445,32 @@
                 const submissions = await response.json();
                 allSubmissions = submissions;
                 
+                // Extract unique modules
+                const moduleMap = new Map();
+                submissions.forEach(p => {
+                    const key = p.resourceLinkId || 'unknown';
+                    const title = p.resourceLinkTitle || 'Unknown Module';
+                    if (!moduleMap.has(key)) {
+                        moduleMap.set(key, { id: key, title: title });
+                    }
+                });
+                allModules = Array.from(moduleMap.values())
+                    .sort((a, b) => a.title.localeCompare(b.title));
+                
                 // Extract unique threads (top-level posts)
                 allThreads = submissions
                     .filter(p => !p.parentId)
                     .map(p => ({
                         id: p.id,
+                        moduleId: p.resourceLinkId,
+                        moduleTitle: p.resourceLinkTitle || 'Unknown Module',
                         title: p.text.substring(0, 60) + (p.text.length > 60 ? '...' : ''),
                         authorName: p.authorName,
                         timestamp: p.timestamp
                     }))
                     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 
+                updateModuleFilter();
                 updateThreadFilter();
                 filterByThread();
             } catch (error) {
@@ -457,14 +480,41 @@
             }
         }
         
+        function updateModuleFilter() {
+            const select = document.getElementById('module-filter');
+            const currentValue = select.value;
+            
+            // Rebuild options
+            select.innerHTML = '<option value="all">All Modules (' + allModules.length + ' modules)</option>';
+            
+            allModules.forEach(module => {
+                const option = document.createElement('option');
+                option.value = module.id;
+                option.textContent = module.title;
+                select.appendChild(option);
+            });
+            
+            // Restore previous selection if it still exists
+            if (currentValue && currentValue !== 'all') {
+                const exists = allModules.find(m => m.id === currentValue);
+                if (exists) select.value = currentValue;
+            }
+        }
+        
         function updateThreadFilter() {
             const select = document.getElementById('thread-filter');
             const currentValue = select.value;
             
-            // Rebuild options
-            select.innerHTML = '<option value="all">All Threads (' + allThreads.length + ' threads)</option>';
+            // Filter threads by selected module
+            let threadsToShow = allThreads;
+            if (currentModuleFilter !== 'all') {
+                threadsToShow = allThreads.filter(t => t.moduleId === currentModuleFilter);
+            }
             
-            allThreads.forEach(thread => {
+            // Rebuild options
+            select.innerHTML = '<option value="all">All Threads (' + threadsToShow.length + ' threads)</option>';
+            
+            threadsToShow.forEach(thread => {
                 const option = document.createElement('option');
                 option.value = thread.id;
                 const date = new Date(thread.timestamp).toLocaleDateString();
@@ -472,34 +522,43 @@
                 select.appendChild(option);
             });
             
-            // Restore previous selection if it still exists
+            // Restore previous selection if it still exists and is in current module
             if (currentValue && currentValue !== 'all') {
-                const exists = allThreads.find(t => t.id === currentValue);
-                if (exists) select.value = currentValue;
+                const exists = threadsToShow.find(t => t.id === currentValue);
+                if (exists) {
+                    select.value = currentValue;
+                } else {
+                    select.value = 'all';
+                    currentThreadFilter = 'all';
+                }
             }
+        }
+        
+        function filterByModule() {
+            const select = document.getElementById('module-filter');
+            currentModuleFilter = select.value;
+            currentThreadFilter = 'all'; // Reset thread filter when module changes
+            updateThreadFilter();
+            filterByThread();
         }
         
         function filterByThread() {
             const select = document.getElementById('thread-filter');
             currentThreadFilter = select.value;
             
-            let filteredSubmissions;
+            let filteredSubmissions = allSubmissions;
             
-            if (currentThreadFilter === 'all') {
-                filteredSubmissions = allSubmissions;
-            } else {
+            // First filter by module
+            if (currentModuleFilter !== 'all') {
+                filteredSubmissions = filteredSubmissions.filter(post => 
+                    post.resourceLinkId === currentModuleFilter
+                );
+            }
+            
+            // Then filter by thread
+            if (currentThreadFilter !== 'all') {
                 // Get the thread and all its replies
-                const threadPostIds = new Set([currentThreadFilter]);
-                
-                // Find all replies to this thread
-                allSubmissions.forEach(post => {
-                    if (post.parentId === currentThreadFilter) {
-                        threadPostIds.add(post.id);
-                    }
-                });
-                
-                // Filter to only posts in this thread
-                filteredSubmissions = allSubmissions.filter(post => 
+                filteredSubmissions = filteredSubmissions.filter(post => 
                     post.id === currentThreadFilter || post.parentId === currentThreadFilter
                 );
             }

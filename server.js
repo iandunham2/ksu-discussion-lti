@@ -390,6 +390,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
             id: crypto.randomBytes(16).toString('hex'),
             contextId: req.session.user.contextId,
             resourceLinkId: req.session.user.resourceLinkId,
+            resourceLinkTitle: req.session.user.resourceLinkTitle,
             parentId: parentId || null,
             authorId: req.session.user.id,
             authorName: req.session.user.name,
@@ -558,17 +559,17 @@ async function runAIDetection(text) {
 
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
-        const resourceLinkId = req.session.user.resourceLinkId;
+        const contextId = req.session.user.contextId;
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ resourceLinkId })
+                .find({ contextId })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.resourceLinkId === resourceLinkId)
+                .filter(p => p.contextId === contextId)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
