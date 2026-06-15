@@ -411,7 +411,15 @@
         </div>
 
         <div class="submissions">
-            <button class="refresh-btn" onclick="loadSubmissions()">🔄 Refresh Posts</button>
+            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
+                <button class="refresh-btn" onclick="loadSubmissions()" style="margin-bottom: 0;">🔄 Refresh Posts</button>
+                <div style="flex: 1; min-width: 250px;">
+                    <label for="thread-filter" style="font-weight: bold; margin-right: 10px;">Filter by Thread:</label>
+                    <select id="thread-filter" onchange="filterByThread()" style="padding: 10px; border-radius: 5px; border: 2px solid #FFC72C; background: white; font-size: 1em; min-width: 200px;">
+                        <option value="all">All Threads</option>
+                    </select>
+                </div>
+            </div>
             <div id="submissions-list"></div>
         </div>
     </div>
@@ -419,18 +427,85 @@
     <script>
         const expandedStudents = new Set();
         const expandedPosts = new Set();
+        let allSubmissions = [];
+        let allThreads = [];
+        let currentThreadFilter = 'all';
 
         async function loadSubmissions() {
             try {
                 const response = await fetch('/api/instructor/posts');
                 const submissions = await response.json();
-                displaySubmissions(submissions);
-                updateStats(submissions);
+                allSubmissions = submissions;
+                
+                // Extract unique threads (top-level posts)
+                allThreads = submissions
+                    .filter(p => !p.parentId)
+                    .map(p => ({
+                        id: p.id,
+                        title: p.text.substring(0, 60) + (p.text.length > 60 ? '...' : ''),
+                        authorName: p.authorName,
+                        timestamp: p.timestamp
+                    }))
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                
+                updateThreadFilter();
+                filterByThread();
             } catch (error) {
                 console.error('Error loading submissions:', error);
                 document.getElementById('submissions-list').innerHTML =
                     '<div class="no-submissions"><h2>Error loading submissions</h2><p>' + error.message + '</p></div>';
             }
+        }
+        
+        function updateThreadFilter() {
+            const select = document.getElementById('thread-filter');
+            const currentValue = select.value;
+            
+            // Rebuild options
+            select.innerHTML = '<option value="all">All Threads (' + allThreads.length + ' threads)</option>';
+            
+            allThreads.forEach(thread => {
+                const option = document.createElement('option');
+                option.value = thread.id;
+                const date = new Date(thread.timestamp).toLocaleDateString();
+                option.textContent = `${thread.authorName} - ${date}: ${thread.title}`;
+                select.appendChild(option);
+            });
+            
+            // Restore previous selection if it still exists
+            if (currentValue && currentValue !== 'all') {
+                const exists = allThreads.find(t => t.id === currentValue);
+                if (exists) select.value = currentValue;
+            }
+        }
+        
+        function filterByThread() {
+            const select = document.getElementById('thread-filter');
+            currentThreadFilter = select.value;
+            
+            let filteredSubmissions;
+            
+            if (currentThreadFilter === 'all') {
+                filteredSubmissions = allSubmissions;
+            } else {
+                // Get the thread and all its replies
+                const threadPostIds = new Set([currentThreadFilter]);
+                
+                // Find all replies to this thread
+                allSubmissions.forEach(post => {
+                    if (post.parentId === currentThreadFilter) {
+                        threadPostIds.add(post.id);
+                    }
+                });
+                
+                // Filter to only posts in this thread
+                filteredSubmissions = allSubmissions.filter(post => 
+                    post.id === currentThreadFilter || post.parentId === currentThreadFilter
+                );
+            }
+            
+            displaySubmissions(filteredSubmissions);
+            updateStats(filteredSubmissions);
         }
 
         function updateStats(submissions) {
