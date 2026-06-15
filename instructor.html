@@ -446,68 +446,25 @@
                 const submissions = await response.json();
                 allSubmissions = submissions;
                 
-                // Build modules by grouping top-level posts into calendar-week buckets.
-                // Each unique ISO week (Mon–Sun) becomes one "module" = one discussion.
-                // If the instructor has renamed a week via thread-label, that label is used.
-                // weekKey format: "YYYY-Www" (e.g. "2026-W24")
-                const isoWeekKey = (dateStr) => {
-                    const d = new Date(dateStr);
-                    const jan4 = new Date(d.getFullYear(), 0, 4);
-                    const startOfWeek1 = new Date(jan4);
-                    startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-                    const diff = d - startOfWeek1;
-                    const week = Math.floor(diff / 604800000) + 1;
-                    return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
-                };
-                const weekLabel = (dateStr) => {
-                    const d = new Date(dateStr);
-                    // Monday of that week
-                    const day = d.getDay() || 7;
-                    const mon = new Date(d);
-                    mon.setDate(d.getDate() - day + 1);
-                    return 'Week of ' + mon.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                };
-
-                // Collect threadLabels set by the instructor (keyed on threadRootId).
-                // We'll use them to override week labels when the instructor has named a week.
-                // Since threadRootId is the week key here, look up by weekKey.
-                const weekLabelOverrides = {};
-                submissions.forEach(p => {
-                    if (!p.parentId && p.threadLabel) {
-                        const wk = isoWeekKey(p.timestamp);
-                        weekLabelOverrides[wk] = p.threadLabel;
-                    }
-                });
-
+                // Extract unique modules
                 const moduleMap = new Map();
                 submissions.forEach(p => {
-                    if (!p.parentId) {
-                        const wk = isoWeekKey(p.timestamp);
-                        if (!moduleMap.has(wk)) {
-                            moduleMap.set(wk, {
-                                id: wk,
-                                title: weekLabelOverrides[wk] || weekLabel(p.timestamp),
-                                timestamp: p.timestamp
-                            });
-                        }
+                    const key = p.resourceLinkId || 'unknown';
+                    const title = p.moduleLabel || p.resourceLinkTitle || 'Unknown Module';
+                    if (!moduleMap.has(key)) {
+                        moduleMap.set(key, { id: key, title: title });
                     }
                 });
                 allModules = Array.from(moduleMap.values())
-                    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-                // Tag each submission with its weekKey so filtering works.
-                allSubmissions = submissions.map(p => ({
-                    ...p,
-                    weekKey: isoWeekKey(p.timestamp)
-                }));
-
-                // Threads = top-level posts; moduleId = the week they belong to.
-                allThreads = allSubmissions
+                    .sort((a, b) => a.title.localeCompare(b.title));
+                
+                // Extract unique threads (top-level posts)
+                allThreads = submissions
                     .filter(p => !p.parentId)
                     .map(p => ({
                         id: p.id,
-                        moduleId: p.weekKey,
-                        moduleTitle: moduleMap.get(p.weekKey)?.title || p.weekKey,
+                        moduleId: p.resourceLinkId,
+                        moduleTitle: p.moduleLabel || p.resourceLinkTitle || 'Unknown Module',
                         title: p.text.substring(0, 60) + (p.text.length > 60 ? '...' : ''),
                         authorName: p.authorName,
                         timestamp: p.timestamp
@@ -592,17 +549,13 @@
         async function renameModule() {
             if (currentModuleFilter === 'all') return;
             const current = allModules.find(m => m.id === currentModuleFilter);
-            const newName = prompt('Enter a name for this discussion:', current ? current.title : '');
+            const newName = prompt('Enter a name for this discussion (module):', current ? current.title : '');
             if (!newName || !newName.trim()) return;
-            // Find a representative top-level post from this week to pass as threadRootId
-            // (server uses it only for ownership verification).
-            const rep = allSubmissions.find(p => !p.parentId && p.weekKey === currentModuleFilter);
-            if (!rep) { alert('No posts found for this week.'); return; }
             try {
-                const res = await fetch('/api/instructor/thread-label', {
+                const res = await fetch('/api/instructor/discussion-label', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ threadRootId: rep.id, weekKey: currentModuleFilter, label: newName.trim() })
+                    body: JSON.stringify({ resourceLinkId: currentModuleFilter, label: newName.trim() })
                 });
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
@@ -621,15 +574,16 @@
             
             let filteredSubmissions = allSubmissions;
             
-            // Filter by module (= a calendar week key)
+            // First filter by module
             if (currentModuleFilter !== 'all') {
-                filteredSubmissions = filteredSubmissions.filter(post =>
-                    post.weekKey === currentModuleFilter
+                filteredSubmissions = filteredSubmissions.filter(post => 
+                    post.resourceLinkId === currentModuleFilter
                 );
             }
             
-            // Then filter by a specific sub-thread within that module
+            // Then filter by thread
             if (currentThreadFilter !== 'all') {
+                // Get the thread and all its replies
                 filteredSubmissions = filteredSubmissions.filter(post => 
                     post.id === currentThreadFilter || post.parentId === currentThreadFilter
                 );
