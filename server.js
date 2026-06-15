@@ -47,7 +47,7 @@ if (isDev) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection, outcomesCollection;
+let db, postsCollection, draftsCollection, outcomesCollection, launchDebugCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -60,6 +60,7 @@ async function connectDatabase() {
         postsCollection = db.collection('posts');
         draftsCollection = db.collection('drafts');
         outcomesCollection = db.collection('outcomes');
+        launchDebugCollection = db.collection('launch_debug');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
@@ -156,13 +157,16 @@ app.post('/lti/launch', (req, res) => {
             resultSourcedId: req.body.lis_result_sourcedid || ''
         };
 
-        // TEMP: log real LTI identifiers to map existing posts to course/discussion
-        console.log('🔎 LTI LAUNCH:', JSON.stringify({
-            contextId: ltiData.contextId,
-            contextTitle: ltiData.contextTitle,
-            resourceLinkId: ltiData.resourceLinkId,
-            resourceLinkTitle: ltiData.resourceLinkTitle
-        }));
+        // TEMP: capture the full LTI launch payload so we can see what D2L sends
+        // (e.g. whether a discussion-topic title is available). Stored in DB because
+        // we can't read Render's stdout logs directly. Remove after inspection.
+        if (launchDebugCollection) {
+            launchDebugCollection.updateOne(
+                { resourceLinkId: ltiData.resourceLinkId },
+                { $set: { capturedAt: new Date().toISOString(), body: req.body } },
+                { upsert: true }
+            ).catch(e => console.error('launch_debug capture failed:', e));
+        }
 
         // Determine if user is instructor
         const isInstructor = config.instructorRoles.some(role =>
