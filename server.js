@@ -247,6 +247,11 @@ app.post('/lti/test-launch', (req, res) => {
     });
 });
 
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Dev-mode direct login (no LTI needed)
 if (isDev) {
     app.get('/dev/login', (req, res) => {
