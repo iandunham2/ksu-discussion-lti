@@ -508,7 +508,10 @@
             // Filter threads by selected module
             let threadsToShow = allThreads;
             if (currentModuleFilter !== 'all') {
+                console.log('Filtering threads for module:', currentModuleFilter);
+                console.log('All threads:', allThreads.map(t => ({ id: t.id, moduleId: t.moduleId, title: t.moduleTitle })));
                 threadsToShow = allThreads.filter(t => t.moduleId === currentModuleFilter);
+                console.log('Filtered threads:', threadsToShow.length);
             }
             
             // Rebuild options
