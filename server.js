@@ -47,7 +47,7 @@ if (isDev) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection, outcomesCollection, launchDebugCollection;
+let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -60,7 +60,7 @@ async function connectDatabase() {
         postsCollection = db.collection('posts');
         draftsCollection = db.collection('drafts');
         outcomesCollection = db.collection('outcomes');
-        launchDebugCollection = db.collection('launch_debug');
+        discussionLabelsCollection = db.collection('discussionLabels');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
@@ -68,6 +68,7 @@ async function connectDatabase() {
         await postsCollection.createIndex({ authorEmail: 1 });
         await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
+        await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
 
         console.log('✅ MongoDB connected');
     } catch (error) {
@@ -156,17 +157,6 @@ app.post('/lti/launch', (req, res) => {
             outcomeServiceUrl: req.body.lis_outcome_service_url || '',
             resultSourcedId: req.body.lis_result_sourcedid || ''
         };
-
-        // TEMP: capture the full LTI launch payload so we can see what D2L sends
-        // (e.g. whether a discussion-topic title is available). Stored in DB because
-        // we can't read Render's stdout logs directly. Remove after inspection.
-        if (launchDebugCollection) {
-            launchDebugCollection.updateOne(
-                { resourceLinkId: ltiData.resourceLinkId },
-                { $set: { capturedAt: new Date().toISOString(), body: req.body } },
-                { upsert: true }
-            ).catch(e => console.error('launch_debug capture failed:', e));
-        }
 
         // Determine if user is instructor
         const isInstructor = config.instructorRoles.some(role =>
@@ -594,10 +584,58 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
+        // Attach instructor-defined module labels (keyed by resourceLinkId).
+        // D2L sends the same resource_link_title for every discussion, so the
+        // instructor can rename each one; we surface that as moduleLabel.
+        let labelMap = {};
+        if (discussionLabelsCollection) {
+            const labels = await discussionLabelsCollection
+                .find({ resourceLinkId: { $in: [...new Set(posts.map(p => p.resourceLinkId))] } })
+                .toArray();
+            labelMap = Object.fromEntries(labels.map(l => [l.resourceLinkId, l.label]));
+        }
+        posts = posts.map(p => ({
+            ...p,
+            moduleLabel: labelMap[p.resourceLinkId] || p.resourceLinkTitle || 'Untitled Discussion'
+        }));
+
         res.json(posts);
     } catch (error) {
         console.error('Error loading instructor posts:', error);
         res.status(500).json({ error: 'Failed to load posts' });
+    }
+});
+
+// Set a custom display name for a discussion (module), keyed by resourceLinkId.
+app.post('/api/instructor/discussion-label', requireInstructor, async (req, res) => {
+    try {
+        const { resourceLinkId, label } = req.body;
+        const contextTitle = req.session.user.contextTitle;
+
+        if (!resourceLinkId || typeof label !== 'string' || !label.trim()) {
+            return res.status(400).json({ error: 'resourceLinkId and a non-empty label are required' });
+        }
+
+        if (!postsCollection || !discussionLabelsCollection) {
+            return res.status(503).json({ error: 'Database unavailable' });
+        }
+
+        // Ensure the discussion belongs to the instructor's course before renaming.
+        const owned = await postsCollection.findOne({ resourceLinkId, contextTitle });
+        if (!owned) {
+            return res.status(403).json({ error: 'This discussion does not belong to your course.' });
+        }
+
+        await discussionLabelsCollection.updateOne(
+            { resourceLinkId },
+            { $set: { resourceLinkId, contextTitle, label: label.trim(), updatedAt: new Date().toISOString() } },
+            { upsert: true }
+        );
+
+        res.json({ success: true, resourceLinkId, label: label.trim() });
+    } catch (error) {
+        console.error('Error setting discussion label:', error);
+        res.status(500).json({ error: 'Failed to save label' });
     }
 });
 

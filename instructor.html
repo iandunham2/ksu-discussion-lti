@@ -418,6 +418,7 @@
                     <select id="module-filter" onchange="filterByModule()" style="padding: 10px; border-radius: 5px; border: 2px solid #FFC72C; background: white; font-size: 1em; min-width: 200px;">
                         <option value="all">All Modules</option>
                     </select>
+                    <button id="rename-module-btn" onclick="renameModule()" title="Rename the selected discussion" style="display: none; margin-left: 8px; padding: 9px 12px; border-radius: 5px; border: 2px solid #FFC72C; background: white; cursor: pointer; font-size: 0.95em;">✏️ Rename</button>
                 </div>
                 <div style="flex: 1; min-width: 250px;">
                     <label for="thread-filter" style="font-weight: bold; margin-right: 10px;">Thread:</label>
@@ -449,7 +450,7 @@
                 const moduleMap = new Map();
                 submissions.forEach(p => {
                     const key = p.resourceLinkId || 'unknown';
-                    const title = p.resourceLinkTitle || 'Unknown Module';
+                    const title = p.moduleLabel || p.resourceLinkTitle || 'Unknown Module';
                     if (!moduleMap.has(key)) {
                         moduleMap.set(key, { id: key, title: title });
                     }
@@ -463,7 +464,7 @@
                     .map(p => ({
                         id: p.id,
                         moduleId: p.resourceLinkId,
-                        moduleTitle: p.resourceLinkTitle || 'Unknown Module',
+                        moduleTitle: p.moduleLabel || p.resourceLinkTitle || 'Unknown Module',
                         title: p.text.substring(0, 60) + (p.text.length > 60 ? '...' : ''),
                         authorName: p.authorName,
                         timestamp: p.timestamp
@@ -538,8 +539,33 @@
             const select = document.getElementById('module-filter');
             currentModuleFilter = select.value;
             currentThreadFilter = 'all'; // Reset thread filter when module changes
+            // Show the Rename button only when a specific module is selected
+            document.getElementById('rename-module-btn').style.display =
+                currentModuleFilter === 'all' ? 'none' : 'inline-block';
             updateThreadFilter();
             filterByThread();
+        }
+
+        async function renameModule() {
+            if (currentModuleFilter === 'all') return;
+            const current = allModules.find(m => m.id === currentModuleFilter);
+            const newName = prompt('Enter a name for this discussion (module):', current ? current.title : '');
+            if (!newName || !newName.trim()) return;
+            try {
+                const res = await fetch('/api/instructor/discussion-label', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ resourceLinkId: currentModuleFilter, label: newName.trim() })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    alert('Could not rename: ' + (err.error || res.status));
+                    return;
+                }
+                await loadSubmissions();
+            } catch (e) {
+                alert('Could not rename: ' + e.message);
+            }
         }
         
         function filterByThread() {
