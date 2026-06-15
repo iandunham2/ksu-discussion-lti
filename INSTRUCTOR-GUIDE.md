@@ -21,6 +21,16 @@ The tool has already been configured as an External Learning Tool in your course
 
 Each time you add the tool to a module, it creates a **separate, isolated discussion instance**. Posts in Module 1 are completely separate from Module 2, etc.
 
+> ### ⚠️ IMPORTANT: Use ONE link per discussion assignment
+>
+> The tool separates discussions by the **individual link** you place in D2L (each link has its own hidden ID). It does **not** know about D2L's "Discussion 1 / Discussion 2" topic names.
+>
+> **Do this:** Add a **new, separate** "AI-Monitored Discussion" link for **every** discussion assignment (Introduction, Podcast Topic, etc.).
+>
+> **Do NOT do this:** Reuse the **same** link for multiple assignments across the semester. If you do, every assignment's posts pile into one board and the dashboard cannot tell them apart — they will all show as a single module, and each student's posts from different assignments get grouped together.
+>
+> If you have already reused one link, the dashboard will still group each student's posts **by thread** so you can tell the assignments apart, but a separate link per assignment is the clean setup.
+
 ### Step-by-Step
 
 1. In your course, click **Content** in the navbar
@@ -113,8 +123,13 @@ When a student clicks the discussion link in a module:
 
 When you (the instructor) click the discussion link in a module:
 
-1. You see the **Instructor Dashboard** for that specific module's discussion
-2. The dashboard shows:
+1. You see the **Instructor Dashboard** for **all discussions in that course** (you only see your own course's data)
+2. Use the filters at the top:
+   - **Module dropdown** — pick a specific discussion link (each separate link = one module)
+   - **Thread dropdown** — narrow to a single discussion thread
+   - **✏️ Rename button** — appears when a module is selected; click it to give that discussion a clear name (e.g. "Discussion 2: Choose Your Podcast Topic"). The name is saved and persists.
+3. Students are grouped into cards. Within each student's card, their posts are **separated by thread**, so contributions to different discussion assignments appear as distinct sections (🧵).
+4. The dashboard shows:
    - **Total submissions** with risk breakdown (High / Medium / Low)
    - **Each post** with:
      - Student name and email
@@ -123,7 +138,7 @@ When you (the instructor) click the discussion link in a module:
      - Typing analytics: correction ratio, suspicious refocuses, WPM spikes, injection attempts
      - Full post text
      - Post type (original post vs. reply)
-3. Dashboard auto-refreshes every 15 seconds
+5. Dashboard auto-refreshes every 15 seconds
 
 ### Risk Score Breakdown
 
@@ -189,6 +204,8 @@ This should not happen. Each module placement gets a unique `resource_link_id` f
 | Action | How |
 |--------|-----|
 | Add discussion to a module | Content → Module → Existing Activities → External Learning Tools → AI-Monitored Discussion |
-| Rename the discussion | Click dropdown arrow → Edit Properties In-place → change title |
+| Use a new link per assignment | Repeat the step above for each discussion (don't reuse one link) |
+| Rename a module in the dashboard | Select a Module → click ✏️ Rename → type a name |
+| Rename the discussion in D2L | Click dropdown arrow → Edit Properties In-place → change title |
 | View student posts + AI scores | Click the discussion link as an instructor |
 | Test as a student | Use `https://ksu-discussion-lti.onrender.com/test-launch.html` |
