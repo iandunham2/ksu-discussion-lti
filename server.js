@@ -47,7 +47,7 @@ if (isDev) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection;
+let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection, threadLabelsCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -61,6 +61,7 @@ async function connectDatabase() {
         draftsCollection = db.collection('drafts');
         outcomesCollection = db.collection('outcomes');
         discussionLabelsCollection = db.collection('discussionLabels');
+        threadLabelsCollection = db.collection('threadLabels');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
@@ -69,6 +70,8 @@ async function connectDatabase() {
         await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
+        await threadLabelsCollection.createIndex({ weekKey: 1 }, { unique: true, sparse: true });
+        await threadLabelsCollection.createIndex({ threadRootId: 1 }, { unique: true, sparse: true });
 
         console.log('✅ MongoDB connected');
     } catch (error) {
@@ -585,8 +588,6 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
         }
 
         // Attach instructor-defined module labels (keyed by resourceLinkId).
-        // D2L sends the same resource_link_title for every discussion, so the
-        // instructor can rename each one; we surface that as moduleLabel.
         let labelMap = {};
         if (discussionLabelsCollection) {
             const labels = await discussionLabelsCollection
@@ -594,10 +595,53 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
                 .toArray();
             labelMap = Object.fromEntries(labels.map(l => [l.resourceLinkId, l.label]));
         }
-        posts = posts.map(p => ({
-            ...p,
-            moduleLabel: labelMap[p.resourceLinkId] || p.resourceLinkTitle || 'Untitled Discussion'
-        }));
+
+        // Build week-key-based thread labels (instructor-named discussions).
+        // isoWeekKey: same algorithm as the client — find the Monday of the ISO week.
+        const isoWeekKey = (dateStr) => {
+            const d = new Date(dateStr);
+            const jan4 = new Date(d.getFullYear(), 0, 4);
+            const startOfWeek1 = new Date(jan4);
+            startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+            const diff = d - startOfWeek1;
+            const week = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
+            return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+        };
+        const weekKeys = [...new Set(posts.map(p => isoWeekKey(p.timestamp)))];
+        let weekLabelMap = {};
+        if (threadLabelsCollection) {
+            const wLabels = await threadLabelsCollection
+                .find({ weekKey: { $in: weekKeys } })
+                .toArray();
+            weekLabelMap = Object.fromEntries(wLabels.map(l => [l.weekKey, l.label]));
+        }
+
+        // Walk parentId chain to find each post's thread root.
+        const postById = Object.fromEntries(posts.map(p => [p.id, p]));
+        const resolveRoot = (p) => {
+            let cur = p;
+            const seen = new Set();
+            while (cur && cur.parentId && postById[cur.parentId] && !seen.has(cur.id)) {
+                seen.add(cur.id);
+                cur = postById[cur.parentId];
+            }
+            return cur ? cur.id : p.id;
+        };
+
+        posts = posts.map(p => {
+            const rootId = resolveRoot(p);
+            const root = postById[rootId];
+            const wk = isoWeekKey(p.timestamp);
+            const threadLabel = weekLabelMap[wk] || null;
+            return {
+                ...p,
+                moduleLabel: labelMap[p.resourceLinkId] || p.resourceLinkTitle || 'Untitled Discussion',
+                threadRootId: rootId,
+                threadLabel,
+                weekKey: wk,
+                threadSnippet: root ? root.text.substring(0, 80) : ''
+            };
+        });
 
         res.json(posts);
     } catch (error) {
@@ -635,6 +679,43 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
         res.json({ success: true, resourceLinkId, label: label.trim() });
     } catch (error) {
         console.error('Error setting discussion label:', error);
+        res.status(500).json({ error: 'Failed to save label' });
+    }
+});
+
+// Set a custom display name for a calendar-week discussion bucket.
+// weekKey: "YYYY-Www" (ISO week). threadRootId: any top-level post id from that week,
+// used only to verify the week belongs to this instructor's course.
+app.post('/api/instructor/thread-label', requireInstructor, async (req, res) => {
+    try {
+        const { threadRootId, weekKey, label } = req.body;
+        const contextTitle = req.session.user.contextTitle;
+
+        if (!weekKey || typeof label !== 'string' || !label.trim()) {
+            return res.status(400).json({ error: 'weekKey and a non-empty label are required' });
+        }
+
+        if (!postsCollection || !threadLabelsCollection) {
+            return res.status(503).json({ error: 'Database unavailable' });
+        }
+
+        // Verify ownership: the representative post must belong to this course.
+        if (threadRootId) {
+            const owned = await postsCollection.findOne({ id: threadRootId, contextTitle });
+            if (!owned) {
+                return res.status(403).json({ error: 'This discussion does not belong to your course.' });
+            }
+        }
+
+        await threadLabelsCollection.updateOne(
+            { weekKey },
+            { $set: { weekKey, contextTitle, label: label.trim(), updatedAt: new Date().toISOString() } },
+            { upsert: true }
+        );
+
+        res.json({ success: true, weekKey, label: label.trim() });
+    } catch (error) {
+        console.error('Error setting thread label:', error);
         res.status(500).json({ error: 'Failed to save label' });
     }
 });
