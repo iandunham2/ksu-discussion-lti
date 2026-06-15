@@ -156,6 +156,14 @@ app.post('/lti/launch', (req, res) => {
             resultSourcedId: req.body.lis_result_sourcedid || ''
         };
 
+        // TEMP: log real LTI identifiers to map existing posts to course/discussion
+        console.log('🔎 LTI LAUNCH:', JSON.stringify({
+            contextId: ltiData.contextId,
+            contextTitle: ltiData.contextTitle,
+            resourceLinkId: ltiData.resourceLinkId,
+            resourceLinkTitle: ltiData.resourceLinkTitle
+        }));
+
         // Determine if user is instructor
         const isInstructor = config.instructorRoles.some(role =>
             ltiData.roles.toLowerCase().includes(role.toLowerCase())
@@ -394,6 +402,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
         const post = {
             id: crypto.randomBytes(16).toString('hex'),
             contextId: req.session.user.contextId,
+            contextTitle: req.session.user.contextTitle,
             resourceLinkId: req.session.user.resourceLinkId,
             resourceLinkTitle: req.session.user.resourceLinkTitle,
             parentId: parentId || null,
@@ -564,17 +573,20 @@ async function runAIDetection(text) {
 
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
-        const contextId = req.session.user.contextId;
+        // Group by course (contextTitle) rather than contextId, because this D2L
+        // setup sends a different context_id per discussion topic. contextTitle is
+        // consistent across all discussions in the same course.
+        const contextTitle = req.session.user.contextTitle;
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ contextId })
+                .find({ contextTitle })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextId === contextId)
+                .filter(p => p.contextTitle === contextTitle)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
