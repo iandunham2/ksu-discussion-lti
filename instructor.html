@@ -763,25 +763,59 @@
                 const sid = student.authorId || student.authorEmail;
                 const risk = worstRisk(student.posts);
 
-                // Separate top-level posts from replies
-                const topPosts = student.posts.filter(p => !p.parentId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                const replies = student.posts.filter(p => p.parentId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                // Group this student's posts by the thread they belong to.
+                // A thread is identified by its root post id (a reply's parentId,
+                // or the post's own id if it is a top-level post). This separates
+                // posts that belong to different discussion assignments.
+                const postById = {};
+                allSubmissions.forEach(p => { postById[p.id] = p; });
+                const rootIdOf = (p) => {
+                    let cur = p;
+                    const seen = new Set();
+                    while (cur && cur.parentId && postById[cur.parentId] && !seen.has(cur.id)) {
+                        seen.add(cur.id);
+                        cur = postById[cur.parentId];
+                    }
+                    return cur ? cur.id : p.id;
+                };
 
-                // Render posts: each top post followed by its replies
-                let postsHtml = '';
-                topPosts.forEach((post, i) => {
-                    const postKey = `${sid}-top-${i}`;
-                    postsHtml += renderPostBlock(post, postKey, false);
-                    // Attach any replies to this top post
-                    replies.filter(r => r.parentId === post.id).forEach((reply, j) => {
-                        const replyKey = `${sid}-reply-${i}-${j}`;
-                        postsHtml += renderPostBlock(reply, replyKey, true);
-                    });
+                const threadGroups = new Map();
+                student.posts.forEach(p => {
+                    const rootId = rootIdOf(p);
+                    if (!threadGroups.has(rootId)) threadGroups.set(rootId, []);
+                    threadGroups.get(rootId).push(p);
                 });
-                // Orphan replies (parent not found in this student's top posts)
-                replies.filter(r => !topPosts.find(p => p.id === r.parentId)).forEach((reply, j) => {
-                    const replyKey = `${sid}-orphan-${j}`;
-                    postsHtml += renderPostBlock(reply, replyKey, true);
+
+                // Order threads by their earliest post time
+                const orderedThreads = Array.from(threadGroups.entries()).sort((a, b) => {
+                    const ta = Math.min(...a[1].map(p => new Date(p.timestamp)));
+                    const tb = Math.min(...b[1].map(p => new Date(p.timestamp)));
+                    return ta - tb;
+                });
+
+                let postsHtml = '';
+                orderedThreads.forEach(([rootId, groupPosts], gi) => {
+                    const root = postById[rootId];
+                    const startedByStudent = root && (root.authorId === student.authorId || root.authorEmail === student.authorEmail);
+                    const rootSnippet = root ? (root.text || '').substring(0, 70) : 'Discussion thread';
+                    const threadTitle = startedByStudent
+                        ? `Thread started by ${student.authorName}`
+                        : `Reply in ${root ? root.authorName : 'another'}'s thread`;
+                    postsHtml += `
+                        <div class="thread-group" style="border-left: 4px solid #FFC72C; margin: 14px 0; padding-left: 12px;">
+                            <div class="thread-group-header" style="font-weight: bold; color: #333; margin-bottom: 8px;">
+                                🧵 ${threadTitle}
+                                <span style="font-weight: normal; color: #777;">&bull; ${groupPosts.length} post${groupPosts.length !== 1 ? 's' : ''}</span>
+                                <div style="font-weight: normal; color: #999; font-size: 0.85em; margin-top: 2px;">"${rootSnippet}${rootSnippet.length >= 70 ? '...' : ''}"</div>
+                            </div>
+                    `;
+                    groupPosts
+                        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                        .forEach((post, pi) => {
+                            const postKey = `${sid}-t${gi}-${pi}`;
+                            postsHtml += renderPostBlock(post, postKey, !!post.parentId);
+                        });
+                    postsHtml += `</div>`;
                 });
 
                 const gradeLabel = student.grade != null ? ` — Current: ${student.grade}/100` : '';
