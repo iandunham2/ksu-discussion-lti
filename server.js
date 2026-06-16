@@ -149,7 +149,10 @@ app.post('/lti/launch', (req, res) => {
             roles: req.body.roles || '',
             contextId: req.body.context_id || 'default',
             contextTitle: req.body.context_title || 'Discussion',
-            resourceLinkId: req.body.resource_link_id || 'default',
+            // ext_d2l_link_id is the unique content topic ID per placement in D2L.
+            // resource_link_id is shared across all topics using the same LTI rcode,
+            // so we prefer ext_d2l_link_id to disambiguate individual discussions.
+            resourceLinkId: req.body.ext_d2l_link_id || req.body.resource_link_id || 'default',
             resourceLinkTitle: req.body.resource_link_title || 'Discussion Board',
             consumerKey: req.body.oauth_consumer_key,
             returnUrl: req.body.launch_presentation_return_url || '',
