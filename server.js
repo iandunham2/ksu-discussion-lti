@@ -648,9 +648,13 @@ async function runAIDetection(text) {
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
         const resourceLinkId = req.session.user.resourceLinkId;
+        const contextId = req.session.user.contextId;
         const disc = req.session.user.disc;
         const contextTitle = req.session.user.contextTitle;
-        const query = disc ? { resourceLinkId, disc } : { resourceLinkId };
+        // Use contextId (course-wide) for instructor so posts from all module LTI links are visible.
+        // If a specific disc is selected, additionally filter by disc value.
+        console.log('[instructor/posts] contextId:', contextId, 'resourceLinkId:', resourceLinkId, 'disc:', disc);
+        const query = disc ? { contextId, disc } : { contextId };
         let posts;
 
         if (postsCollection) {
@@ -660,7 +664,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.resourceLinkId === resourceLinkId && (!disc || p.disc === disc))
+                .filter(p => p.contextId === contextId && (!disc || p.disc === disc))
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
