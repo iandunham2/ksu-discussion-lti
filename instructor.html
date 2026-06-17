@@ -449,8 +449,12 @@
             const loading = document.getElementById('disc-loading');
             loading.style.display = 'inline';
             try {
-                const r = await fetch('/api/instructor/disc-list');
-                const list = await r.json();
+                const [listR, userR] = await Promise.all([
+                    fetch('/api/instructor/disc-list'),
+                    fetch('/api/user')
+                ]);
+                const list = await listR.json();
+                const user = await userR.json();
                 sel.innerHTML = '<option value="">— Select a discussion to grade —</option>';
                 list.sort((a, b) => a.label.localeCompare(b.label)).forEach(d => {
                     const opt = document.createElement('option');
@@ -458,10 +462,17 @@
                     opt.textContent = d.label;
                     sel.appendChild(opt);
                 });
-                // Also check current disc from session
-                const userR = await fetch('/api/user');
-                const user = await userR.json();
-                if (user.disc) sel.value = user.disc;
+                if (user.disc) {
+                    // Ensure the option exists even if no posts yet
+                    if (!sel.querySelector(`option[value="${user.disc}"]`)) {
+                        const opt = document.createElement('option');
+                        opt.value = user.disc;
+                        opt.textContent = user.resourceLinkTitle || user.disc;
+                        sel.appendChild(opt);
+                    }
+                    sel.value = user.disc;
+                    switchDisc();
+                }
             } finally {
                 loading.style.display = 'none';
             }
