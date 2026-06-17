@@ -211,6 +211,31 @@ app.post('/lti/launch', (req, res) => {
             const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
             if (mapping) disc = mapping.disc;
         }
+
+        // Auto-derive disc from resource_link_title for courses with per-topic LTI links
+        // (e.g. MENT 3300 where each discussion topic has a unique title)
+        if (!disc && ltiData.resourceLinkTitle) {
+            const titleMap = {
+                'Discussion 0: Introduce Yourself':                      '3300-disc0',
+                'Discussion 1: Choose Your Podcast Topic':               '3300-disc1',
+                'Discussion 2: Peer Critique \u2014 Episode 2':          '3300-disc2',
+                'Discussion 3: The Sound of Podcasting':                 '3300-disc3',
+                'Discussion 4: Peer Critique \u2014 Episode 3':          '3300-disc4',
+                'Discussion 5: Brand Identity in the Wild':              '3300-disc5',
+                'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
+                'Discussion 7: Episode Structure Analysis':              '3300-disc7',
+                'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
+            };
+            disc = titleMap[ltiData.resourceLinkTitle] || null;
+            if (disc && !isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
+                discMappingsCollection.updateOne(
+                    { resultSourcedId: ltiData.resultSourcedId },
+                    { $set: { resultSourcedId: ltiData.resultSourcedId, disc, userId: ltiData.userId, updatedAt: new Date().toISOString() } },
+                    { upsert: true }
+                ).catch(e => console.error('Failed to auto-save disc mapping:', e));
+            }
+        }
+
         req.session.user.disc = disc;
 
         req.session.save((err) => {
