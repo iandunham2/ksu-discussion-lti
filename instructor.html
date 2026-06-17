@@ -411,6 +411,13 @@
         </div>
 
         <div class="submissions">
+            <div style="background:#fff3cd;border:1px solid #FFC72C;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <label for="disc-select" style="font-weight:bold;white-space:nowrap;">📋 Discussion:</label>
+                <select id="disc-select" onchange="switchDisc()" style="padding:9px 12px;border-radius:5px;border:2px solid #FFC72C;background:white;font-size:1em;min-width:280px;flex:1;">
+                    <option value="">— Select a discussion to grade —</option>
+                </select>
+                <span id="disc-loading" style="color:#888;font-size:0.9em;display:none;">Loading...</span>
+            </div>
             <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
                 <button class="refresh-btn" onclick="loadSubmissions()" style="margin-bottom: 0;">🔄 Refresh Posts</button>
                 <div style="flex: 1; min-width: 250px;">
@@ -436,6 +443,41 @@
         const expandedPosts = new Set();
         let allSubmissions = [];
         let allModules = [];
+
+        async function loadDiscList() {
+            const sel = document.getElementById('disc-select');
+            const loading = document.getElementById('disc-loading');
+            loading.style.display = 'inline';
+            try {
+                const r = await fetch('/api/instructor/disc-list');
+                const list = await r.json();
+                sel.innerHTML = '<option value="">— Select a discussion to grade —</option>';
+                list.sort((a, b) => a.label.localeCompare(b.label)).forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.disc;
+                    opt.textContent = d.label;
+                    sel.appendChild(opt);
+                });
+                // Also check current disc from session
+                const userR = await fetch('/api/user');
+                const user = await userR.json();
+                if (user.disc) sel.value = user.disc;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        async function switchDisc() {
+            const disc = document.getElementById('disc-select').value;
+            await fetch('/api/instructor/set-disc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ disc: disc || null })
+            });
+            loadSubmissions();
+        }
+
+        loadDiscList();
         let allThreads = [];
         let currentModuleFilter = 'all';
         let currentThreadFilter = 'all';

@@ -47,7 +47,7 @@ if (isDev) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection;
+let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection, discMappingsCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -61,6 +61,7 @@ async function connectDatabase() {
         draftsCollection = db.collection('drafts');
         outcomesCollection = db.collection('outcomes');
         discussionLabelsCollection = db.collection('discussionLabels');
+        discMappingsCollection = db.collection('discMappings');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
@@ -69,6 +70,7 @@ async function connectDatabase() {
         await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
+        await discMappingsCollection.createIndex({ resultSourcedId: 1 }, { unique: true });
 
         console.log('✅ MongoDB connected');
     } catch (error) {
@@ -134,7 +136,7 @@ app.post('/lti/launch', (req, res) => {
     console.log('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
         Object.entries(req.body).filter(([k]) => !k.startsWith('oauth_signature'))
     ), null, 2));
-    provider.valid_request(req, (err, isValid) => {
+    provider.valid_request(req, async (err, isValid) => {
         if (!isValid && !isDev) {
             console.error('LTI validation failed:', err);
             return res.status(401).send('LTI launch validation failed. Please launch from D2L.');
@@ -152,9 +154,7 @@ app.post('/lti/launch', (req, res) => {
             roles: req.body.roles || '',
             contextId: req.body.context_id || 'default',
             contextTitle: req.body.context_title || 'Discussion',
-            // Use ?disc= query param if present (set per-topic in D2L URL), else fall back
-            // to ext_d2l_link_id (D2L-specific), then standard resource_link_id.
-            resourceLinkId: req.query.disc || req.body.ext_d2l_link_id || req.body.resource_link_id || 'default',
+            resourceLinkId: req.body.ext_d2l_link_id || req.body.resource_link_id || 'default',
             resourceLinkTitle: req.body.resource_link_title || 'Discussion Board',
             consumerKey: req.body.oauth_consumer_key,
             returnUrl: req.body.launch_presentation_return_url || '',
@@ -205,10 +205,20 @@ app.post('/lti/launch', (req, res) => {
             }
         }
 
+        // For students, look up their disc mapping (resultSourcedId → disc)
+        let disc = null;
+        if (!isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
+            const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
+            if (mapping) disc = mapping.disc;
+        }
+        req.session.user.disc = disc;
+
         req.session.save((err) => {
             if (err) console.error('Session save error:', err);
             if (isInstructor) {
                 res.redirect('/instructor.html');
+            } else if (!disc && ltiData.resultSourcedId) {
+                res.redirect('/pick-discussion.html');
             } else {
                 res.redirect('/discussion.html');
             }
@@ -303,8 +313,9 @@ function requireInstructor(req, res, next) {
 
 app.get('/api/user', requireAuth, async (req, res) => {
     let instructions = null;
-    if (discussionLabelsCollection) {
-        const doc = await discussionLabelsCollection.findOne({ resourceLinkId: req.session.user.resourceLinkId });
+    const discKey = req.session.user.disc;
+    if (discussionLabelsCollection && discKey) {
+        const doc = await discussionLabelsCollection.findOne({ resourceLinkId: discKey });
         if (doc && doc.instructions) instructions = doc.instructions;
     }
     res.json({
@@ -314,8 +325,63 @@ app.get('/api/user', requireAuth, async (req, res) => {
         contextId: req.session.user.contextId,
         contextTitle: req.session.user.contextTitle,
         resourceLinkTitle: req.session.user.resourceLinkTitle,
+        disc: req.session.user.disc || null,
         instructions
     });
+});
+
+// Instructor sets active disc via query param (?disc=3340-mod3 on /api/user or explicit POST)
+app.post('/api/instructor/set-disc', requireInstructor, (req, res) => {
+    const { disc } = req.body;
+    req.session.user.disc = disc || null;
+    req.session.save();
+    res.json({ success: true, disc: req.session.user.disc });
+});
+
+// List all distinct disc values that have posts (for instructor dropdown)
+app.get('/api/instructor/disc-list', requireInstructor, async (req, res) => {
+    try {
+        const resourceLinkId = req.session.user.resourceLinkId;
+        let discs;
+        if (postsCollection) {
+            discs = await postsCollection.distinct('disc', { resourceLinkId });
+        } else {
+            const all = (global.inMemoryPosts || []).filter(p => p.resourceLinkId === resourceLinkId);
+            discs = [...new Set(all.map(p => p.disc).filter(Boolean))];
+        }
+        // Attach labels from discussionLabels
+        let labeled = discs.filter(Boolean).map(d => ({ disc: d, label: d }));
+        if (discussionLabelsCollection) {
+            const docs = await discussionLabelsCollection.find({ resourceLinkId: { $in: discs.filter(Boolean) } }).toArray();
+            const map = Object.fromEntries(docs.map(d => [d.resourceLinkId, d.label]));
+            labeled = labeled.map(d => ({ disc: d.disc, label: map[d.disc] || d.disc }));
+        }
+        res.json(labeled);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to list discussions' });
+    }
+});
+
+// Student sets their disc mapping on first launch (stored by resultSourcedId)
+app.post('/api/set-disc', requireAuth, async (req, res) => {
+    try {
+        const { disc } = req.body;
+        if (!disc || typeof disc !== 'string') return res.status(400).json({ error: 'disc is required' });
+        const resultSourcedId = req.session.user.resultSourcedId;
+        if (!resultSourcedId) return res.status(400).json({ error: 'No resultSourcedId in session' });
+        if (discMappingsCollection) {
+            await discMappingsCollection.updateOne(
+                { resultSourcedId },
+                { $set: { resultSourcedId, disc, userId: req.session.user.id, updatedAt: new Date().toISOString() } },
+                { upsert: true }
+            );
+        }
+        req.session.user.disc = disc;
+        req.session.save();
+        res.json({ success: true, disc });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save disc' });
+    }
 });
 
 // ======================
@@ -325,16 +391,18 @@ app.get('/api/user', requireAuth, async (req, res) => {
 app.get('/api/posts', requireAuth, async (req, res) => {
     try {
         const resourceLinkId = req.session.user.resourceLinkId;
+        const disc = req.session.user.disc;
+        const query = disc ? { resourceLinkId, disc } : { resourceLinkId };
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ resourceLinkId })
+                .find(query)
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.resourceLinkId === resourceLinkId)
+                .filter(p => p.resourceLinkId === resourceLinkId && (!disc || p.disc === disc))
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
@@ -410,6 +478,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
             contextTitle: req.session.user.contextTitle,
             resourceLinkId: req.session.user.resourceLinkId,
             resourceLinkTitle: req.session.user.resourceLinkTitle,
+            disc: req.session.user.disc || null,
             parentId: parentId || null,
             authorId: req.session.user.id,
             authorName: req.session.user.name,
@@ -579,24 +648,26 @@ async function runAIDetection(text) {
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
         const resourceLinkId = req.session.user.resourceLinkId;
+        const disc = req.session.user.disc;
         const contextTitle = req.session.user.contextTitle;
+        const query = disc ? { resourceLinkId, disc } : { resourceLinkId };
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ resourceLinkId })
+                .find(query)
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.resourceLinkId === resourceLinkId)
+                .filter(p => p.resourceLinkId === resourceLinkId && (!disc || p.disc === disc))
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
         // Attach instructor-defined label for this discussion.
         let moduleLabel = p => p.resourceLinkTitle || contextTitle || 'Untitled Discussion';
-        if (discussionLabelsCollection) {
-            const labelDoc = await discussionLabelsCollection.findOne({ resourceLinkId });
+        if (discussionLabelsCollection && disc) {
+            const labelDoc = await discussionLabelsCollection.findOne({ resourceLinkId: disc });
             if (labelDoc) moduleLabel = () => labelDoc.label;
         }
         posts = posts.map(p => ({ ...p, moduleLabel: moduleLabel(p) }));
@@ -676,16 +747,24 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
     try {
         const { authorId, score, feedback } = req.body;
         const resourceLinkId = req.session.user.resourceLinkId;
+        const disc = req.session.user.disc;
 
         if (typeof score !== 'number' || score < 0 || score > 100) {
             return res.status(400).json({ error: 'Score must be between 0 and 100' });
         }
 
-        // Find the student's outcomes data
+        // Find the student's resultSourcedId for this disc via discMappings
         let outcomesData;
-        if (outcomesCollection) {
+        if (outcomesCollection && discMappingsCollection && disc) {
+            const mapping = await discMappingsCollection.findOne({ userId: authorId, disc });
+            if (mapping) {
+                outcomesData = await outcomesCollection.findOne({ resultSourcedId: mapping.resultSourcedId });
+            }
+        }
+        // Fallback: find by userId + resourceLinkId (works if only one discussion)
+        if (!outcomesData && outcomesCollection) {
             outcomesData = await outcomesCollection.findOne({ userId: authorId, resourceLinkId });
-        } else {
+        } else if (!outcomesData) {
             outcomesData = (global.inMemoryOutcomes || {})[`${authorId}:${resourceLinkId}`];
         }
 
@@ -821,7 +900,7 @@ function sendLTIGrade(serviceUrl, sourcedId, score) {
 // STATIC FILES
 // ======================
 
-const allowedFiles = ['discussion.html', 'instructor.html', 'styles.css', 'script.js', 'discussion.js', 'test-launch.html'];
+const allowedFiles = ['discussion.html', 'instructor.html', 'pick-discussion.html', 'styles.css', 'script.js', 'discussion.js', 'test-launch.html'];
 
 app.get('/:file', (req, res, next) => {
     const file = req.params.file;

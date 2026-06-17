@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Select Your Discussion</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,0.10); padding: 36px 40px; max-width: 520px; width: 100%; }
+  h1 { font-size: 1.4rem; color: #1a1a1a; margin-bottom: 8px; }
+  p { color: #555; font-size: 0.95rem; margin-bottom: 24px; line-height: 1.5; }
+  select { width: 100%; padding: 10px 12px; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 20px; background: #fff; }
+  button { width: 100%; padding: 12px; background: #1a73e8; color: #fff; font-size: 1rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  button:hover { background: #1558b0; }
+  .error { color: #c00; font-size: 0.9rem; margin-top: 10px; display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Which discussion are you joining?</h1>
+  <p>Because all discussions share the same tool link, please select your module below. You only need to do this once.</p>
+  <select id="disc-select">
+    <option value="">— Select your module —</option>
+    <option value="3340-mod1">Module 1: The Ethics of the Histogram</option>
+    <option value="3340-mod2">Module 2: Where Do We Draw the Line?</option>
+    <option value="3340-mod3">Module 3: The Ethics of Composite Photography</option>
+    <option value="3340-mod4">Module 4: Visual Strategy in Social Media Campaigns</option>
+    <option value="3340-mod5">Module 5: Favorite Podcasts</option>
+    <option value="3340-mod6">Module 6: The Art of the Mix</option>
+    <option value="3340-mod7">Module 7: Sound Design vs. Music</option>
+    <option value="3340-mod8">Module 8: The Invisible Art of Dialogue Editing</option>
+    <option value="3340-mod9">Module 9: Best Edited Scenes in Film</option>
+    <option value="3340-mod10">Module 10: The Illusion of Place</option>
+    <option value="3340-mod11">Module 11: The Patience of Rotoscoping</option>
+    <option value="3340-mod13">Module 13: The Gig Economy &amp; Career Strategy</option>
+    <option value="3340-mod15">Module 15: Final Showcase</option>
+  </select>
+  <button onclick="saveDisc()">Go to Discussion</button>
+  <div class="error" id="error-msg">Please select a module.</div>
+</div>
+<script>
+async function saveDisc() {
+  const disc = document.getElementById('disc-select').value;
+  if (!disc) { document.getElementById('error-msg').style.display = 'block'; return; }
+  document.getElementById('error-msg').style.display = 'none';
+  const r = await fetch('/api/set-disc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disc }) });
+  if (r.ok) { window.location.href = '/discussion.html'; }
+  else { document.getElementById('error-msg').textContent = 'Error saving selection. Please try again.'; document.getElementById('error-msg').style.display = 'block'; }
+}
+</script>
+</body>
+</html>
