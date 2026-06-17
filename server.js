@@ -570,37 +570,28 @@ async function runAIDetection(text) {
 
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
-        // Group by course (contextTitle) rather than contextId, because this D2L
-        // setup sends a different context_id per discussion topic. contextTitle is
-        // consistent across all discussions in the same course.
+        const resourceLinkId = req.session.user.resourceLinkId;
         const contextTitle = req.session.user.contextTitle;
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find({ contextTitle })
+                .find({ resourceLinkId })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextTitle === contextTitle)
+                .filter(p => p.resourceLinkId === resourceLinkId)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
-        // Attach instructor-defined module labels (keyed by resourceLinkId).
-        // D2L sends the same resource_link_title for every discussion, so the
-        // instructor can rename each one; we surface that as moduleLabel.
-        let labelMap = {};
+        // Attach instructor-defined label for this discussion.
+        let moduleLabel = p => p.resourceLinkTitle || contextTitle || 'Untitled Discussion';
         if (discussionLabelsCollection) {
-            const labels = await discussionLabelsCollection
-                .find({ resourceLinkId: { $in: [...new Set(posts.map(p => p.resourceLinkId))] } })
-                .toArray();
-            labelMap = Object.fromEntries(labels.map(l => [l.resourceLinkId, l.label]));
+            const labelDoc = await discussionLabelsCollection.findOne({ resourceLinkId });
+            if (labelDoc) moduleLabel = () => labelDoc.label;
         }
-        posts = posts.map(p => ({
-            ...p,
-            moduleLabel: labelMap[p.resourceLinkId] || p.resourceLinkTitle || 'Untitled Discussion'
-        }));
+        posts = posts.map(p => ({ ...p, moduleLabel: moduleLabel(p) }));
 
         res.json(posts);
     } catch (error) {
