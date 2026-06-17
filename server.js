@@ -168,20 +168,6 @@ app.post('/lti/launch', (req, res) => {
             ltiData.roles.toLowerCase().includes(role.toLowerCase())
         );
 
-        // Store in session
-        req.session.user = {
-            id: ltiData.userId,
-            name: ltiData.userName,
-            email: ltiData.userEmail,
-            isInstructor,
-            contextId: ltiData.contextId,
-            contextTitle: ltiData.contextTitle,
-            resourceLinkId: ltiData.resourceLinkId,
-            resourceLinkTitle: ltiData.resourceLinkTitle,
-            outcomeServiceUrl: ltiData.outcomeServiceUrl,
-            resultSourcedId: ltiData.resultSourcedId
-        };
-
         // Store outcomes data for grade passback (students only)
         if (!isInstructor && ltiData.outcomeServiceUrl && ltiData.resultSourcedId) {
             const outcomesDoc = {
@@ -234,17 +220,33 @@ app.post('/lti/launch', (req, res) => {
             if (mapping) disc = mapping.disc;
         }
 
-        req.session.user.disc = disc;
+        const userData = {
+            id: ltiData.userId,
+            name: ltiData.userName,
+            email: ltiData.userEmail,
+            isInstructor,
+            contextId: ltiData.contextId,
+            contextTitle: ltiData.contextTitle,
+            resourceLinkId: ltiData.resourceLinkId,
+            resourceLinkTitle: ltiData.resourceLinkTitle,
+            outcomeServiceUrl: ltiData.outcomeServiceUrl,
+            resultSourcedId: ltiData.resultSourcedId,
+            disc,
+        };
 
-        req.session.save((err) => {
-            if (err) console.error('Session save error:', err);
-            if (isInstructor) {
-                res.redirect('/instructor.html');
-            } else if (!disc && ltiData.resultSourcedId) {
-                res.redirect('/pick-discussion.html');
-            } else {
-                res.redirect('/discussion.html');
-            }
+        req.session.regenerate((err) => {
+            if (err) console.error('Session regenerate error:', err);
+            req.session.user = userData;
+            req.session.save((err2) => {
+                if (err2) console.error('Session save error:', err2);
+                if (isInstructor) {
+                    res.redirect('/instructor.html');
+                } else if (!disc && ltiData.resultSourcedId) {
+                    res.redirect('/pick-discussion.html');
+                } else {
+                    res.redirect('/discussion.html');
+                }
+            });
         });
     });
 });
