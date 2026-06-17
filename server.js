@@ -131,6 +131,9 @@ const apiLimiter = rateLimit({
 app.post('/lti/launch', (req, res) => {
     const provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
 
+    console.log('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
+        Object.entries(req.body).filter(([k]) => !k.startsWith('oauth_signature'))
+    ), null, 2));
     provider.valid_request(req, (err, isValid) => {
         if (!isValid && !isDev) {
             console.error('LTI validation failed:', err);
