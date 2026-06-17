@@ -68,6 +68,10 @@ class DiscussionBoard {
                 this.userInfoDisplay.textContent = `Logged in as: ${this.userInfo.name}`;
                 this.contextInfo.textContent = this.userInfo.contextTitle || '';
                 this.discussionTitle.textContent = this.userInfo.resourceLinkTitle || 'Discussion Board';
+                if (this.userInfo.instructions) {
+                    const panel = document.getElementById('instructions-panel');
+                    if (panel) { panel.innerHTML = this.userInfo.instructions; panel.style.display = 'block'; }
+                }
                 this.submitPostBtn.disabled = false;
                 this.loadPosts();
                 this.loadDraft();

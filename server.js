@@ -299,14 +299,20 @@ function requireInstructor(req, res, next) {
 // API: User Info
 // ======================
 
-app.get('/api/user', requireAuth, (req, res) => {
+app.get('/api/user', requireAuth, async (req, res) => {
+    let instructions = null;
+    if (discussionLabelsCollection) {
+        const doc = await discussionLabelsCollection.findOne({ resourceLinkId: req.session.user.resourceLinkId });
+        if (doc && doc.instructions) instructions = doc.instructions;
+    }
     res.json({
         name: req.session.user.name,
         email: req.session.user.email,
         isInstructor: req.session.user.isInstructor,
         contextId: req.session.user.contextId,
         contextTitle: req.session.user.contextTitle,
-        resourceLinkTitle: req.session.user.resourceLinkTitle
+        resourceLinkTitle: req.session.user.resourceLinkTitle,
+        instructions
     });
 });
 
@@ -603,7 +609,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
 // Set a custom display name for a discussion (module), keyed by resourceLinkId.
 app.post('/api/instructor/discussion-label', requireInstructor, async (req, res) => {
     try {
-        const { resourceLinkId, label } = req.body;
+        const { resourceLinkId, label, instructions } = req.body;
         const contextTitle = req.session.user.contextTitle;
 
         if (!resourceLinkId || typeof label !== 'string' || !label.trim()) {
@@ -620,9 +626,12 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
             return res.status(403).json({ error: 'This discussion does not belong to your course.' });
         }
 
+        const setFields = { resourceLinkId, contextTitle, label: label.trim(), updatedAt: new Date().toISOString() };
+        if (instructions !== undefined) setFields.instructions = instructions;
+
         await discussionLabelsCollection.updateOne(
             { resourceLinkId },
-            { $set: { resourceLinkId, contextTitle, label: label.trim(), updatedAt: new Date().toISOString() } },
+            { $set: setFields },
             { upsert: true }
         );
 
@@ -630,6 +639,30 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
     } catch (error) {
         console.error('Error setting discussion label:', error);
         res.status(500).json({ error: 'Failed to save label' });
+    }
+});
+
+// Pre-populate instructions without requiring an active student post (setup use only).
+app.post('/api/instructor/set-instructions', requireInstructor, async (req, res) => {
+    try {
+        const { resourceLinkId, instructions, label } = req.body;
+        if (!resourceLinkId || !instructions) {
+            return res.status(400).json({ error: 'resourceLinkId and instructions are required' });
+        }
+        if (!discussionLabelsCollection) {
+            return res.status(503).json({ error: 'Database unavailable' });
+        }
+        const setFields = { resourceLinkId, instructions, updatedAt: new Date().toISOString() };
+        if (label) setFields.label = label;
+        await discussionLabelsCollection.updateOne(
+            { resourceLinkId },
+            { $set: setFields },
+            { upsert: true }
+        );
+        res.json({ success: true, resourceLinkId });
+    } catch (error) {
+        console.error('Error setting instructions:', error);
+        res.status(500).json({ error: 'Failed to save instructions' });
     }
 });
 
