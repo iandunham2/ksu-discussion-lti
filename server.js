@@ -135,12 +135,22 @@ app.all('/lti/launch', (req, res, next) => {
     console.log(`[LTI Launch] ${req.method} ${req.originalUrl}`);
     console.log(`  Query: ${JSON.stringify(req.query)}`);
     if (req.method === 'GET') {
-        // If there's a disc query param, the student probably clicked a direct link
-        // Redirect them to the D2L course
-        if (req.query.disc) {
-            const contextId = req.query.disc.includes('3340') ? '3991603' : '3991591';
-            return res.redirect(`https://kennesaw.view.usg.edu/d2l/le/content/${contextId}/Home`);
-        }
+        // If accessed directly (not via LTI POST), show landing page
+        const disc = req.query.disc;
+        return res.send(`<!DOCTYPE html>
+<html>
+<head><title>Discussion Tool</title></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
+    <h2>🔒 LTI Discussion Tool</h2>
+    <p>This tool must be launched from D2L Brightspace.</p>
+    ${disc ? `<p><strong>Discussion:</strong> ${disc}</p>` : ''}
+    <p>Please return to your D2L course and click the discussion link from there.</p>
+    <hr>
+    <p style="color: #666; font-size: 0.9em;">
+        If you see this message repeatedly, clear your browser cookies for this site and try again.
+    </p>
+</body>
+</html>`);
     }
     next();
 });
