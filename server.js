@@ -191,19 +191,24 @@ app.post('/lti/launch', (req, res) => {
             }
         }
 
-        // Title map takes priority — covers courses with per-topic LTI links (e.g. MENT 3300)
-        const titleMap = {
-            'Discussion 0: Introduce Yourself':                      '3300-disc0',
-            'Discussion 1: Choose Your Podcast Topic':               '3300-disc1',
-            'Discussion 2: Peer Critique \u2014 Episode 2':          '3300-disc2',
-            'Discussion 3: The Sound of Podcasting':                 '3300-disc3',
-            'Discussion 4: Peer Critique \u2014 Episode 3':          '3300-disc4',
-            'Discussion 5: Brand Identity in the Wild':              '3300-disc5',
-            'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
-            'Discussion 7: Episode Structure Analysis':              '3300-disc7',
-            'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
-        };
-        let disc = titleMap[ltiData.resourceLinkTitle] || null;
+        // Query param takes highest priority — allows unique URLs like ?disc=3340-mod5
+        let disc = req.query.disc || null;
+
+        // Title map — covers courses with per-topic LTI links (e.g. MENT 3300)
+        if (!disc) {
+            const titleMap = {
+                'Discussion 0: Introduce Yourself':                      '3300-disc0',
+                'Discussion 1: Choose Your Podcast Topic':               '3300-disc1',
+                'Discussion 2: Peer Critique \u2014 Episode 2':          '3300-disc2',
+                'Discussion 3: The Sound of Podcasting':                 '3300-disc3',
+                'Discussion 4: Peer Critique \u2014 Episode 3':          '3300-disc4',
+                'Discussion 5: Brand Identity in the Wild':              '3300-disc5',
+                'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
+                'Discussion 7: Episode Structure Analysis':              '3300-disc7',
+                'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
+            };
+            disc = titleMap[ltiData.resourceLinkTitle] || null;
+        }
 
         // If title map matched, persist/overwrite the DB mapping so future lookups are correct
         if (disc && !isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
