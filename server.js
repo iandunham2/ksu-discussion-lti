@@ -130,6 +130,21 @@ const apiLimiter = rateLimit({
 // LTI 1.1 LAUNCH
 // ======================
 
+// Debug: Log all requests to /lti/launch
+app.all('/lti/launch', (req, res, next) => {
+    console.log(`[LTI Launch] ${req.method} ${req.originalUrl}`);
+    console.log(`  Query: ${JSON.stringify(req.query)}`);
+    if (req.method === 'GET') {
+        // If there's a disc query param, the student probably clicked a direct link
+        // Redirect them to the D2L course
+        if (req.query.disc) {
+            const contextId = req.query.disc.includes('3340') ? '3991603' : '3991591';
+            return res.redirect(`https://kennesaw.view.usg.edu/d2l/le/content/${contextId}/Home`);
+        }
+    }
+    next();
+});
+
 app.post('/lti/launch', (req, res) => {
     const provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
 
