@@ -130,29 +130,71 @@ const apiLimiter = rateLimit({
 // LTI 1.1 LAUNCH
 // ======================
 
-// Debug: Log all requests to /lti/launch
-app.all('/lti/launch', (req, res, next) => {
+// Handle both GET (direct link) and POST (LTI launch) requests
+app.all('/lti/launch', async (req, res, next) => {
     console.log(`[LTI Launch] ${req.method} ${req.originalUrl}`);
     console.log(`  Query: ${JSON.stringify(req.query)}`);
-    if (req.method === 'GET') {
-        // If accessed directly (not via LTI POST), show landing page
+    console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
+
+    // If GET request with disc param, treat as direct link launch
+    if (req.method === 'GET' && req.query.disc) {
         const disc = req.query.disc;
-        return res.send(`<!DOCTYPE html>
+        const is3340 = disc.includes('3340');
+        const contextId = is3340 ? '3991603' : '3991591';
+
+        // Create a lightweight session for this user
+        // In a real LTI launch we'd get this from the POST body
+        // For direct links, we use query params or defaults
+        const userData = {
+            id: req.query.user_id || 'student-' + Date.now(),
+            name: req.query.user_name || 'Student',
+            email: req.query.user_email || 'student@kennesaw.edu',
+            isInstructor: false,
+            contextId: contextId,
+            contextTitle: is3340 ? 'COMM 3340' : 'MENT 3300',
+            resourceLinkId: req.query.resource_link_id || disc,
+            resourceLinkTitle: disc,
+            disc: disc,
+            outcomeServiceUrl: '',
+            resultSourcedId: ''
+        };
+
+        // Store disc mapping for this lightweight launch
+        if (discMappingsCollection && userData.resultSourcedId) {
+            await discMappingsCollection.updateOne(
+                { resultSourcedId: userData.resultSourcedId },
+                { $set: { resultSourcedId: userData.resultSourcedId, disc, userId: userData.id, updatedAt: new Date().toISOString() } },
+                { upsert: true }
+            );
+        }
+
+        req.session.regenerate((err) => {
+            if (err) console.error('Session regenerate error:', err);
+            req.session.user = userData;
+            req.session.save((err2) => {
+                if (err2) console.error('Session save error:', err2);
+                console.log(`[GET Launch] Redirecting to discussion.html with disc=${disc}`);
+                res.redirect('/discussion.html');
+            });
+        });
+        return;
+    }
+
+    // POST requests go to normal LTI handler
+    if (req.method === 'POST') {
+        return next();
+    }
+
+    // No disc param - show landing page
+    res.send(`<!DOCTYPE html>
 <html>
 <head><title>Discussion Tool</title></head>
 <body style="font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
     <h2>🔒 LTI Discussion Tool</h2>
     <p>This tool must be launched from D2L Brightspace.</p>
-    ${disc ? `<p><strong>Discussion:</strong> ${disc}</p>` : ''}
     <p>Please return to your D2L course and click the discussion link from there.</p>
-    <hr>
-    <p style="color: #666; font-size: 0.9em;">
-        If you see this message repeatedly, clear your browser cookies for this site and try again.
-    </p>
 </body>
 </html>`);
-    }
-    next();
 });
 
 app.post('/lti/launch', (req, res) => {
