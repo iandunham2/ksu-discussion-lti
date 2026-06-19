@@ -67,7 +67,7 @@ async function connectDatabase() {
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
         await postsCollection.createIndex({ parentId: 1 });
         await postsCollection.createIndex({ authorEmail: 1 });
-        await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
+        await draftsCollection.createIndex({ userEmail: 1, resourceLinkId: 1 }, { unique: true });
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
         await discMappingsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
@@ -464,12 +464,14 @@ app.post('/api/instructor/set-disc', requireInstructor, (req, res) => {
 // List all distinct disc values that have posts (for instructor dropdown)
 app.get('/api/instructor/disc-list', requireInstructor, async (req, res) => {
     try {
-        const resourceLinkId = req.session.user.resourceLinkId;
+        const contextTitle = req.session.user.contextTitle;
         let discs;
+        // Course-wide dashboard: list distinct disc values across the whole course
+        // (by contextTitle), not just the instructor's single launched link.
         if (postsCollection) {
-            discs = await postsCollection.distinct('disc', { resourceLinkId });
+            discs = await postsCollection.distinct('disc', { contextTitle });
         } else {
-            const all = (global.inMemoryPosts || []).filter(p => p.resourceLinkId === resourceLinkId);
+            const all = (global.inMemoryPosts || []).filter(p => p.contextTitle === contextTitle);
             discs = [...new Set(all.map(p => p.disc).filter(Boolean))];
         }
         // Attach labels from discussionLabels
@@ -653,6 +655,7 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
         const draft = {
             userEmail: req.session.user.email,
             contextId: req.session.user.contextId,
+            resourceLinkId: req.session.user.resourceLinkId,
             text: typeof text === 'string' ? text.substring(0, 50000) : '',
             scratchPad: typeof scratchPad === 'string' ? scratchPad.substring(0, 50000) : '',
             savedAt: new Date().toISOString()
@@ -660,12 +663,12 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
 
         if (draftsCollection) {
             await draftsCollection.updateOne(
-                { userEmail: req.session.user.email, contextId: req.session.user.contextId },
+                { userEmail: req.session.user.email, resourceLinkId: req.session.user.resourceLinkId },
                 { $set: draft },
                 { upsert: true }
             );
         } else {
-            const key = `${req.session.user.email}:${req.session.user.contextId}`;
+            const key = `${req.session.user.email}:${req.session.user.resourceLinkId}`;
             global.inMemoryDrafts[key] = draft;
         }
 
@@ -683,10 +686,10 @@ app.get('/api/load-draft', requireAuth, async (req, res) => {
         if (draftsCollection) {
             draft = await draftsCollection.findOne({
                 userEmail: req.session.user.email,
-                contextId: req.session.user.contextId
+                resourceLinkId: req.session.user.resourceLinkId
             });
         } else {
-            const key = `${req.session.user.email}:${req.session.user.contextId}`;
+            const key = `${req.session.user.email}:${req.session.user.resourceLinkId}`;
             draft = global.inMemoryDrafts[key] || null;
         }
 
@@ -780,13 +783,14 @@ async function runAIDetection(text) {
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
         const resourceLinkId = req.session.user.resourceLinkId;
-        const contextId = req.session.user.contextId;
-        const disc = req.session.user.disc;
         const contextTitle = req.session.user.contextTitle;
-        // Use contextId (course-wide) for instructor so posts from all module LTI links are visible.
+        const disc = req.session.user.disc;
+        // Group by contextTitle (the stable course identifier) so an instructor sees all
+        // discussions within their course. D2L can issue different context_ids for the same
+        // course, so contextId is unreliable for course-wide grouping (see DEVELOPER-NOTES).
         // If a specific disc is selected, additionally filter by disc value.
-        console.log('[instructor/posts] contextId:', contextId, 'resourceLinkId:', resourceLinkId, 'disc:', disc);
-        const query = disc ? { contextId, disc } : { contextId };
+        console.log('[instructor/posts] contextTitle:', contextTitle, 'resourceLinkId:', resourceLinkId, 'disc:', disc);
+        const query = disc ? { contextTitle, disc } : { contextTitle };
         let posts;
 
         if (postsCollection) {
@@ -796,7 +800,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextId === contextId && (!disc || p.disc === disc))
+                .filter(p => p.contextTitle === contextTitle && (!disc || p.disc === disc))
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
@@ -889,15 +893,22 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
             return res.status(400).json({ error: 'Score must be between 0 and 100' });
         }
 
-        // Find the student's resultSourcedId for this disc via discMappings
+        // Find the student's outcomes record (resultSourcedId + outcomeServiceUrl) for THIS disc.
+        // discMappings is keyed by resourceLinkId (unique per placed link), so resolve the set of
+        // links that belong to this disc, then look up the student's per-link outcome record.
+        // Using the instructor's resourceLinkId would send grades to the wrong gradebook item when
+        // multiple discussion links exist in the course.
         let outcomesData;
         if (outcomesCollection && discMappingsCollection && disc) {
-            const mapping = await discMappingsCollection.findOne({ userId: authorId, disc });
-            if (mapping) {
-                outcomesData = await outcomesCollection.findOne({ resultSourcedId: mapping.resultSourcedId });
+            const discLinkIds = await discMappingsCollection.distinct('resourceLinkId', { disc });
+            if (discLinkIds.length) {
+                outcomesData = await outcomesCollection.findOne({
+                    userId: authorId,
+                    resourceLinkId: { $in: discLinkIds }
+                });
             }
         }
-        // Fallback: find by userId + resourceLinkId (works if only one discussion)
+        // Fallback: find by userId + the instructor's resourceLinkId (works if only one discussion)
         if (!outcomesData && outcomesCollection) {
             outcomesData = await outcomesCollection.findOne({ userId: authorId, resourceLinkId });
         } else if (!outcomesData) {
@@ -920,15 +931,20 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
             return res.status(500).json({ error: 'Failed to send grade to D2L. Please try again.' });
         }
 
-        // Store grade locally
+        // Store grade locally on the student's posts for this discussion. Match by disc when
+        // known (the instructor's resourceLinkId may differ from the student's link), otherwise
+        // fall back to the student's own resourceLinkId from their outcomes record.
         if (postsCollection) {
+            const gradeQuery = disc
+                ? { authorId, disc }
+                : { authorId, resourceLinkId: outcomesData.resourceLinkId || resourceLinkId };
             await postsCollection.updateMany(
-                { authorId, resourceLinkId },
+                gradeQuery,
                 { $set: { grade: score, gradeFeedback: feedback || '', gradedAt: new Date().toISOString(), gradedBy: req.session.user.name } }
             );
         }
 
-        console.log(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${resourceLinkId}`);
+        console.log(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${disc || resourceLinkId}`);
         res.json({ success: true, message: `Grade of ${score}/100 sent to D2L gradebook` });
     } catch (error) {
         console.error('Grade submission error:', error);
