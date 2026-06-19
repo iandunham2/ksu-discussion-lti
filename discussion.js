@@ -72,7 +72,7 @@ class DiscussionBoard {
                     const panel = document.getElementById('instructions-panel');
                     if (panel) { panel.innerHTML = this.userInfo.instructions; panel.style.display = 'block'; }
                 }
-                this.submitPostBtn.disabled = false;
+                this.refreshSubmitState();
                 this.loadPosts();
                 this.loadDraft();
             } else {
@@ -206,13 +206,13 @@ class DiscussionBoard {
             this.loadPosts();
 
             this.submitPostBtn.textContent = '✅ Posted!';
-            setTimeout(() => { this.submitPostBtn.textContent = 'Post'; this.submitPostBtn.disabled = false; }, 1500);
+            setTimeout(() => { this.submitPostBtn.textContent = 'Post'; this.refreshSubmitState(); }, 1500);
 
         } catch (error) {
             console.error('Submit error:', error);
             alert('Failed to post: ' + error.message);
             this.submitPostBtn.textContent = 'Post';
-            this.submitPostBtn.disabled = false;
+            this.refreshSubmitState();
         }
     }
 
@@ -290,10 +290,25 @@ class DiscussionBoard {
     setupEditorEvents() {
         this.editor.addEventListener('keydown', (e) => this.handleKeyDown(e));
         this.editor.addEventListener('input', (e) => this.handleInput(e));
+        // Safari does not reliably fire `input` on contenteditable elements, which left the
+        // Post button stuck disabled even after typing. Listen to keyup/blur as a fallback so
+        // the button state refreshes on every browser.
+        this.editor.addEventListener('keyup', () => this.refreshSubmitState());
+        this.editor.addEventListener('blur', () => this.refreshSubmitState());
         this.editor.addEventListener('paste', (e) => this.handlePaste(e));
         this.editor.addEventListener('copy', (e) => { e.preventDefault(); });
         this.editor.addEventListener('cut', (e) => { e.preventDefault(); });
         this.editor.addEventListener('drop', (e) => { e.preventDefault(); });
+    }
+
+    // Single source of truth for the Post button's enabled state: authenticated AND enough text.
+    refreshSubmitState() {
+        if (!this.userInfo) {
+            this.submitPostBtn.disabled = true;
+            return;
+        }
+        const text = (this.editor.textContent || '').trim();
+        this.submitPostBtn.disabled = text.length < 10;
     }
 
     handleKeyDown(e) {
@@ -351,6 +366,7 @@ class DiscussionBoard {
         }
         this.typingAnalytics.lastKeystrokeTime = now;
         this.updateStats();
+        this.refreshSubmitState();
     }
 
     handlePaste(e) {
@@ -521,6 +537,7 @@ class DiscussionBoard {
                 const scratchPad = document.getElementById('scratch-pad');
                 if (scratchPad && data.scratchPad) scratchPad.innerHTML = data.scratchPad;
                 this.updateStats();
+                this.refreshSubmitState();
             }
         } catch (e) {
             console.error('Load draft error:', e);
