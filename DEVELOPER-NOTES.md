@@ -98,6 +98,30 @@ when they were all posted through a single link.
 
 ---
 
+## Maintenance scripts
+
+### `scripts/fix-3340.mjs`
+One-off fix for COMM 3340 (course `3991603`): flips 13 discussion topics from
+`TopicType: 3` (plain URL) to `TopicType: 5` (External Learning Tool / LTI placement)
+via the D2L Content API, preserving all other fields (`Url`, `ToolId`, `ToolItemId`,
+`ActivityType`, etc.).
+
+Run it **locally**, supplying the D2L session credential via env var (never a URL):
+
+```bash
+# dry run (read-only) — prints current TopicType for each topic
+D2L_SESSION_VAL=... node scripts/fix-3340.mjs
+
+# apply the change
+D2L_SESSION_VAL=... [D2L_SECURITY_TOKEN=...] node scripts/fix-3340.mjs --apply
+```
+
+Why a script and not an HTTP route: passing a live `d2lSessionVal` cookie through a
+query string would leak it into request logs, browser history, proxies, and Referer
+headers, and a state-mutating GET behind a static shared secret is CSRF-shaped. The
+script reads the credential from the environment, runs once under an operator who owns
+the session, then exits — no standing credential-replay surface in the deployed service.
+
 ## Change log
 
 ### 2026-06-15
