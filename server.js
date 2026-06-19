@@ -510,7 +510,16 @@ app.get('/api/posts', requireAuth, async (req, res) => {
     try {
         const resourceLinkId = req.session.user.resourceLinkId;
         const disc = req.session.user.disc;
-        const query = disc ? { resourceLinkId, disc } : { resourceLinkId };
+
+        // STRICT ISOLATION: Every discussion must have a disc identifier
+        // If disc is not set, return empty array (student must go through proper LTI launch)
+        if (!disc) {
+            console.log(`[Posts] Rejecting request - no disc in session for user ${req.session.user.id}`);
+            return res.json([]);
+        }
+
+        // Always query by BOTH resourceLinkId AND disc for complete isolation
+        const query = { resourceLinkId, disc };
         let posts;
 
         if (postsCollection) {
@@ -520,7 +529,7 @@ app.get('/api/posts', requireAuth, async (req, res) => {
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.resourceLinkId === resourceLinkId && (!disc || p.disc === disc))
+                .filter(p => p.resourceLinkId === resourceLinkId && p.disc === disc)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
