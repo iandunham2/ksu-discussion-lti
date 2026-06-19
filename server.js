@@ -408,13 +408,34 @@ function requireInstructor(req, res, next) {
 // API: User Info
 // ======================
 
+// Hardcoded correct instructions for 3300 (override any incorrect DB entries)
+const correct3300Instructions = {
+    '3300-disc0': `<h3>Welcome to the Course!</h3><p>For this discussion, please introduce yourself to your classmates. Include:</p><ul><li>Your name and preferred name</li><li>Your major and year</li><li>Why you're interested in podcasting</li><li>Your favorite podcast</li></ul><p><strong>Word count:</strong> 100-200 words</p>`,
+    '3300-disc1': `<h3>Choosing Your Podcast Topic</h3><p>Propose three potential podcast topics for your semester project. For each topic:</p><ul><li>Explain the concept in 2-3 sentences</li><li>Identify your target audience</li><li>List 2-3 potential episode ideas</li></ul><p><strong>Word count:</strong> 300-400 words</p>`,
+    '3300-disc2': `<h3>Peer Critique: Episode 2</h3><p>Listen to the assigned peer's Episode 2 and provide constructive feedback on:</p><ul><li>Content clarity and structure</li><li>Audio quality and production</li><li>Engagement and pacing</li><li>One specific strength</li><li>One specific area for improvement</li></ul><p><strong>Word count:</strong> 200-300 words</p>`,
+    '3300-disc3': `<h3>The Sound of Podcasting</h3><p>Analyze the sound design in a podcast of your choice:</p><ul><li>Describe the overall sonic identity</li><li>Identify 3 specific sound elements (music, SFX, silence, etc.)</li><li>Explain how these elements support the content</li><li>What could be improved?</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
+    '3300-disc4': `<h3>Peer Critique: Episode 3</h3><p>Provide feedback on your peer's Episode 3. Focus on:</p><ul><li>Storytelling and narrative arc</li><li>Use of interviews or sources</li><li>Technical production quality</li><li>Overall effectiveness</li></ul><p><strong>Word count:</strong> 200-300 words</p>`,
+    '3300-disc5': `<h3>Brand Identity Analysis</h3><p>Choose a successful podcast and analyze its brand identity:</p><ul><li>Visual branding (logo, cover art)</li><li>Tone and voice</li><li>Consistency across platforms</li><li>How the brand attracts its audience</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
+    '3300-disc6': `<h3>Peer Critique: Episode 5</h3><p>Review your peer's Episode 5 and comment on:</p><ul><li>Narrative development</li><li>Character/host development</li><li>Production polish</li><li>Audience engagement techniques</li></ul><p><strong>Word count:</strong> 200-300 words</p>`,
+    '3300-disc7': `<h3>Episode Structure Analysis</h3><p>Deconstruct the structure of a podcast episode you admire:</p><ul><li>Outline the episode structure (hook, intro, segments, outro)</li><li>Timing of each section</li><li>Transitions between segments</li><li>What makes the structure effective?</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
+    '3300-disc8': `<h3>Final Peer Critique & Capstone Reflection</h3><p>Provide final feedback on your peer's capstone episode and reflect on your own journey:</p><ul><li>Feedback on peer's final episode</li><li>Your biggest growth this semester</li><li>What you're most proud of in your work</li><li>Advice for future podcasters</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
+};
+
 app.get('/api/user', requireAuth, async (req, res) => {
     let instructions = null;
     const discKey = req.session.user.disc;
-    if (discussionLabelsCollection && discKey) {
+
+    // Use hardcoded correct instructions for 3300 (override any incorrect DB entries)
+    if (discKey && discKey.startsWith('3300-disc')) {
+        instructions = correct3300Instructions[discKey] || null;
+    }
+
+    // Fallback to DB for other courses or if no hardcoded instructions
+    if (!instructions && discussionLabelsCollection && discKey) {
         const doc = await discussionLabelsCollection.findOne({ resourceLinkId: discKey });
         if (doc && doc.instructions) instructions = doc.instructions;
     }
+
     res.json({
         name: req.session.user.name,
         email: req.session.user.email,
