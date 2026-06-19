@@ -70,7 +70,7 @@ async function connectDatabase() {
         await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
-        await discMappingsCollection.createIndex({ resultSourcedId: 1 }, { unique: true });
+        await discMappingsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
 
         console.log('✅ MongoDB connected');
     } catch (error) {
@@ -159,11 +159,11 @@ app.all('/lti/launch', async (req, res, next) => {
             resultSourcedId: ''
         };
 
-        // Store disc mapping for this lightweight launch
-        if (discMappingsCollection && userData.resultSourcedId) {
+        // Store disc mapping for this lightweight launch, keyed by the unique-per-link id.
+        if (discMappingsCollection && userData.resourceLinkId) {
             await discMappingsCollection.updateOne(
-                { resultSourcedId: userData.resultSourcedId },
-                { $set: { resultSourcedId: userData.resultSourcedId, disc, userId: userData.id, updatedAt: new Date().toISOString() } },
+                { resourceLinkId: userData.resourceLinkId },
+                { $set: { resourceLinkId: userData.resourceLinkId, disc, resultSourcedId: userData.resultSourcedId, userId: userData.id, updatedAt: new Date().toISOString() } },
                 { upsert: true }
             );
         }
@@ -277,18 +277,23 @@ app.post('/lti/launch', (req, res) => {
             disc = titleMap[ltiData.resourceLinkTitle] || null;
         }
 
-        // If title map matched, persist/overwrite the DB mapping so future lookups are correct
-        if (disc && !isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
+        // If title map matched, persist/overwrite the DB mapping so future lookups are correct.
+        // Key the mapping on resourceLinkId: per DEVELOPER-NOTES this is unique per placed D2L
+        // link (ext_d2l_link_id || resource_link_id) and arrives on every launch. resultSourcedId
+        // is a per-grade-item value that can be shared/reused across discussions, so keying on it
+        // caused every discussion to resolve to whatever module the student opened first.
+        if (disc && !isInstructor && ltiData.resourceLinkId && discMappingsCollection) {
             discMappingsCollection.updateOne(
-                { resultSourcedId: ltiData.resultSourcedId },
-                { $set: { resultSourcedId: ltiData.resultSourcedId, disc, userId: ltiData.userId, updatedAt: new Date().toISOString() } },
+                { resourceLinkId: ltiData.resourceLinkId },
+                { $set: { resourceLinkId: ltiData.resourceLinkId, disc, resultSourcedId: ltiData.resultSourcedId, userId: ltiData.userId, updatedAt: new Date().toISOString() } },
                 { upsert: true }
             ).catch(e => console.error('Failed to auto-save disc mapping:', e));
         }
 
-        // Fall back to DB mapping (for 3340 and other shared-link courses)
-        if (!disc && !isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
-            const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
+        // Fall back to DB mapping (for 3340 and other shared-link courses).
+        // Look up by resourceLinkId so each distinct discussion link resolves to its own disc.
+        if (!disc && !isInstructor && ltiData.resourceLinkId && discMappingsCollection) {
+            const mapping = await discMappingsCollection.findOne({ resourceLinkId: ltiData.resourceLinkId });
             if (mapping) disc = mapping.disc;
         }
 
@@ -485,12 +490,12 @@ app.post('/api/set-disc', requireAuth, async (req, res) => {
     try {
         const { disc } = req.body;
         if (!disc || typeof disc !== 'string') return res.status(400).json({ error: 'disc is required' });
-        const resultSourcedId = req.session.user.resultSourcedId;
-        if (!resultSourcedId) return res.status(400).json({ error: 'No resultSourcedId in session' });
+        const resourceLinkId = req.session.user.resourceLinkId;
+        if (!resourceLinkId) return res.status(400).json({ error: 'No resourceLinkId in session' });
         if (discMappingsCollection) {
             await discMappingsCollection.updateOne(
-                { resultSourcedId },
-                { $set: { resultSourcedId, disc, userId: req.session.user.id, updatedAt: new Date().toISOString() } },
+                { resourceLinkId },
+                { $set: { resourceLinkId, disc, resultSourcedId: req.session.user.resultSourcedId, userId: req.session.user.id, updatedAt: new Date().toISOString() } },
                 { upsert: true }
             );
         }
