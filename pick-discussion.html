@@ -22,24 +22,59 @@
   <p>Because all discussions share the same tool link, please select your module below. You only need to do this once.</p>
   <select id="disc-select">
     <option value="">— Select your module —</option>
-    <option value="3340-mod1">Module 1: The Ethics of the Histogram</option>
-    <option value="3340-mod2">Module 2: Where Do We Draw the Line?</option>
-    <option value="3340-mod3">Module 3: The Ethics of Composite Photography</option>
-    <option value="3340-mod4">Module 4: Visual Strategy in Social Media Campaigns</option>
-    <option value="3340-mod5">Module 5: Favorite Podcasts</option>
-    <option value="3340-mod6">Module 6: The Art of the Mix</option>
-    <option value="3340-mod7">Module 7: Sound Design vs. Music</option>
-    <option value="3340-mod8">Module 8: The Invisible Art of Dialogue Editing</option>
-    <option value="3340-mod9">Module 9: Best Edited Scenes in Film</option>
-    <option value="3340-mod10">Module 10: The Illusion of Place</option>
-    <option value="3340-mod11">Module 11: The Patience of Rotoscoping</option>
-    <option value="3340-mod13">Module 13: The Gig Economy &amp; Career Strategy</option>
-    <option value="3340-mod15">Module 15: Final Showcase</option>
   </select>
   <button onclick="saveDisc()">Go to Discussion</button>
   <div class="error" id="error-msg">Please select a module.</div>
 </div>
 <script>
+const MODULES_3340 = [
+  { value: '3340-mod1',  label: 'Module 1: The Ethics of the Histogram' },
+  { value: '3340-mod2',  label: 'Module 2: Where Do We Draw the Line?' },
+  { value: '3340-mod3',  label: 'Module 3: The Ethics of Composite Photography' },
+  { value: '3340-mod4',  label: 'Module 4: Visual Strategy in Social Media Campaigns' },
+  { value: '3340-mod5',  label: 'Module 5: Favorite Podcasts' },
+  { value: '3340-mod6',  label: 'Module 6: The Art of the Mix' },
+  { value: '3340-mod7',  label: 'Module 7: Sound Design vs. Music' },
+  { value: '3340-mod8',  label: 'Module 8: The Invisible Art of Dialogue Editing' },
+  { value: '3340-mod9',  label: 'Module 9: Best Edited Scenes in Film' },
+  { value: '3340-mod10', label: 'Module 10: The Illusion of Place' },
+  { value: '3340-mod11', label: 'Module 11: The Patience of Rotoscoping' },
+  { value: '3340-mod13', label: 'Module 13: The Gig Economy & Career Strategy' },
+  { value: '3340-mod15', label: 'Module 15: Final Showcase' },
+];
+const MODULES_3300 = [
+  { value: '3300-disc0', label: 'Discussion 0: Introduce Yourself' },
+  { value: '3300-disc1', label: 'Discussion 1: Podcasts You Watch' },
+  { value: '3300-disc2', label: 'Discussion 2: Peer Critique — Episode 2' },
+  { value: '3300-disc3', label: 'Discussion 3: The Sound of Podcasting' },
+  { value: '3300-disc4', label: 'Discussion 4: Peer Critique — Episode 3' },
+  { value: '3300-disc5', label: 'Discussion 5: Brand Identity in the Wild' },
+  { value: '3300-disc6', label: 'Discussion 6: Peer Critique — Episode 5' },
+  { value: '3300-disc7', label: 'Discussion 7: Episode Structure Analysis' },
+  { value: '3300-disc8', label: 'Discussion 8: Capstone Showcase & Final Peer Critique' },
+];
+
+async function init() {
+  const sel = document.getElementById('disc-select');
+  let modules = MODULES_3340; // default
+  try {
+    const r = await fetch('/api/user');
+    if (r.ok) {
+      const user = await r.json();
+      const ctx = user.contextId || '';
+      if (ctx === '3991591' || ctx.includes('3300')) modules = MODULES_3300;
+      else if (ctx === '3991603' || ctx.includes('3340')) modules = MODULES_3340;
+    }
+  } catch (e) { /* use default */ }
+  for (const m of modules) {
+    const opt = document.createElement('option');
+    opt.value = m.value;
+    opt.textContent = m.label;
+    sel.appendChild(opt);
+  }
+}
+init();
+
 async function saveDisc() {
   const disc = document.getElementById('disc-select').value;
   if (!disc) { document.getElementById('error-msg').style.display = 'block'; return; }

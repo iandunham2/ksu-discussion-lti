@@ -13,6 +13,11 @@ const crypto = require('crypto');
 const path = require('path');
 const { MongoClient, ObjectId } = require('mongodb');
 const lti = require('ims-lti');
+const {
+    CORRECT_3300_INSTRUCTIONS,
+    resolveDisc,
+    discFromTitle,
+} = require('./discussion-config.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -136,7 +141,8 @@ app.all('/lti/launch', async (req, res, next) => {
     console.log(`  Query: ${JSON.stringify(req.query)}`);
     console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
 
-    // If GET request with disc param, treat as direct link launch
+    // GET with ?disc= must still go through D2L LTI POST for authentication.
+    // Direct GET access would create anonymous sessions and break grade passback.
     if (req.method === 'GET' && req.query.disc) {
         const disc = req.query.disc;
         const is3340 = disc.includes('3340');
@@ -258,30 +264,62 @@ app.post('/lti/launch', (req, res) => {
             }
         }
 
+        let dbDisc = null;
+        if (!isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
+            const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
+            if (mapping) dbDisc = mapping.disc;
+        }
+
         // Query param takes highest priority — allows unique URLs like ?disc=3340-mod5
         let disc = req.query.disc || null;
 
-        // Title map — covers courses with per-topic LTI links (e.g. MENT 3300)
+        // ext_d2l_link_id is the D2L content topic ID — unique per placed link, most reliable
+        const TOPIC_ID_TO_DISC = {
+            '62324565': '3300-disc0', '62324566': '3300-disc1', '62324567': '3300-disc2',
+            '62324568': '3300-disc3', '62324569': '3300-disc4', '62324570': '3300-disc5',
+            '62324571': '3300-disc6', '62324572': '3300-disc7', '62324573': '3300-disc8',
+            '61805440': '3340-mod1',  '61805441': '3340-mod2',  '61805442': '3340-mod3',
+            '61805443': '3340-mod4',  '61805444': '3340-mod5',  '61805445': '3340-mod6',
+            '61805446': '3340-mod7',  '61805447': '3340-mod8',  '61805448': '3340-mod9',
+            '61805449': '3340-mod10', '61805450': '3340-mod11', '61805451': '3340-mod13',
+            '61805452': '3340-mod15',
+        };
+        if (!disc && req.body.ext_d2l_link_id) {
+            disc = TOPIC_ID_TO_DISC[String(req.body.ext_d2l_link_id)] || null;
+        }
+
+        // Title map fallback — covers per-topic LTI links (MENT 3300 + COMM 3340)
         if (!disc) {
             const titleMap = {
                 'Discussion 0: Introduce Yourself':                      '3300-disc0',
                 'Discussion 1: Choose Your Podcast Topic':               '3300-disc1',
+                'Discussion 1: Podcasts You Watch':                      '3300-disc1',
                 'Discussion 2: Peer Critique \u2014 Episode 2':          '3300-disc2',
+                'Discussion 2: Peer Critique \u2014 Episode 1':          '3300-disc2',
                 'Discussion 3: The Sound of Podcasting':                 '3300-disc3',
                 'Discussion 4: Peer Critique \u2014 Episode 3':          '3300-disc4',
                 'Discussion 5: Brand Identity in the Wild':              '3300-disc5',
                 'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
                 'Discussion 7: Episode Structure Analysis':              '3300-disc7',
                 'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
+                'Module 1 Discussion':  '3340-mod1',  'Module 2 Discussion':  '3340-mod2',
+                'Module 3 Discussion':  '3340-mod3',  'Module 4 Discussion':  '3340-mod4',
+                'Module 5 Discussion':  '3340-mod5',  'Module 6 Discussion':  '3340-mod6',
+                'Module 7 Discussion':  '3340-mod7',  'Module 8 Discussion':  '3340-mod8',
+                'Module 9 Discussion':  '3340-mod9',  'Module 10 Discussion': '3340-mod10',
+                'Module 11 Discussion': '3340-mod11', 'Module 13 Discussion': '3340-mod13',
+                'Module 15 Discussion': '3340-mod15',
             };
             disc = titleMap[ltiData.resourceLinkTitle] || null;
         }
 
-        // If title map matched, persist/overwrite the DB mapping so future lookups are correct.
-        // Key the mapping on resourceLinkId: per DEVELOPER-NOTES this is unique per placed D2L
-        // link (ext_d2l_link_id || resource_link_id) and arrives on every launch. resultSourcedId
-        // is a per-grade-item value that can be shared/reused across discussions, so keying on it
-        // caused every discussion to resolve to whatever module the student opened first.
+        if (disc) {
+            console.log(`[LTI Launch] Resolved disc=${disc} (title="${ltiData.resourceLinkTitle}", ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}, query.disc=${req.query.disc || 'n/a'})`);
+        } else {
+            console.warn(`[LTI Launch] Could not resolve disc title="${ltiData.resourceLinkTitle}" ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}`);
+        }
+
+        // Persist mapping keyed by resourceLinkId (unique per placed D2L link)
         if (disc && !isInstructor && ltiData.resourceLinkId && discMappingsCollection) {
             discMappingsCollection.updateOne(
                 { resourceLinkId: ltiData.resourceLinkId },
@@ -290,8 +328,7 @@ app.post('/lti/launch', (req, res) => {
             ).catch(e => console.error('Failed to auto-save disc mapping:', e));
         }
 
-        // Fall back to DB mapping (for 3340 and other shared-link courses).
-        // Look up by resourceLinkId so each distinct discussion link resolves to its own disc.
+        // Fall back to DB mapping (for shared-link courses)
         if (!disc && !isInstructor && ltiData.resourceLinkId && discMappingsCollection) {
             const mapping = await discMappingsCollection.findOne({ resourceLinkId: ltiData.resourceLinkId });
             if (mapping) disc = mapping.disc;
@@ -420,26 +457,13 @@ function requireInstructor(req, res, next) {
 // API: User Info
 // ======================
 
-// Hardcoded correct instructions for 3300 (override any incorrect DB entries)
-const correct3300Instructions = {
-    '3300-disc0': `<h3>Welcome to the Course!</h3><p>For this discussion, please introduce yourself to your classmates. Include:</p><ul><li>Your name and preferred name</li><li>Your major and year</li><li>Why you're interested in podcasting</li><li>Your favorite podcast</li></ul><p><strong>Word count:</strong> 100-200 words</p>`,
-    '3300-disc1': `<h3>Choosing Your Podcast Topic</h3><p>Propose three potential podcast topics for your semester project. For each topic:</p><ul><li>Explain the concept in 2-3 sentences</li><li>Identify your target audience</li><li>List 2-3 potential episode ideas</li></ul><p><strong>Word count:</strong> 300-400 words</p>`,
-    '3300-disc2': `<h3>Peer Critique: Episode 2</h3><p>Listen to the assigned peer's Episode 2 and provide constructive feedback on:</p><ul><li>Content clarity and structure</li><li>Audio quality and production</li><li>Engagement and pacing</li><li>One specific strength</li><li>One specific area for improvement</li></ul><p><strong>Word count:</strong> 200-300 words</p>`,
-    '3300-disc3': `<h3>The Sound of Podcasting</h3><p>Analyze the sound design in a podcast of your choice:</p><ul><li>Describe the overall sonic identity</li><li>Identify 3 specific sound elements (music, SFX, silence, etc.)</li><li>Explain how these elements support the content</li><li>What could be improved?</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
-    '3300-disc4': `<h3>Peer Critique: Episode 3</h3><p>Provide feedback on your peer's Episode 3. Focus on:</p><ul><li>Storytelling and narrative arc</li><li>Use of interviews or sources</li><li>Technical production quality</li><li>Overall effectiveness</li></ul><p><strong>Word count:</strong> 200-300 words</p>`,
-    '3300-disc5': `<h3>Brand Identity Analysis</h3><p>Choose a successful podcast and analyze its brand identity:</p><ul><li>Visual branding (logo, cover art)</li><li>Tone and voice</li><li>Consistency across platforms</li><li>How the brand attracts its audience</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
-    '3300-disc6': `<h3>Peer Critique: Episode 5</h3><p>Review your peer's Episode 5 and comment on:</p><ul><li>Narrative development</li><li>Character/host development</li><li>Production polish</li><li>Audience engagement techniques</li></ul><p><strong>Word count:</strong> 200-300 words</p>`,
-    '3300-disc7': `<h3>Episode Structure Analysis</h3><p>Deconstruct the structure of a podcast episode you admire:</p><ul><li>Outline the episode structure (hook, intro, segments, outro)</li><li>Timing of each section</li><li>Transitions between segments</li><li>What makes the structure effective?</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
-    '3300-disc8': `<h3>Final Peer Critique & Capstone Reflection</h3><p>Provide final feedback on your peer's capstone episode and reflect on your own journey:</p><ul><li>Feedback on peer's final episode</li><li>Your biggest growth this semester</li><li>What you're most proud of in your work</li><li>Advice for future podcasters</li></ul><p><strong>Word count:</strong> 400-500 words</p>`,
-};
-
 app.get('/api/user', requireAuth, async (req, res) => {
     let instructions = null;
     const discKey = req.session.user.disc;
 
     // Use hardcoded correct instructions for 3300 (override any incorrect DB entries)
     if (discKey && discKey.startsWith('3300-disc')) {
-        instructions = correct3300Instructions[discKey] || null;
+        instructions = CORRECT_3300_INSTRUCTIONS[discKey] || null;
     }
 
     // Fallback to DB for other courses or if no hardcoded instructions
@@ -532,8 +556,8 @@ app.get('/api/posts', requireAuth, async (req, res) => {
             return res.json([]);
         }
 
-        // Always query by BOTH resourceLinkId AND disc for complete isolation
-        const query = { resourceLinkId, disc };
+        // Query by course context + disc — resourceLinkId is often shared across topics
+        const query = { contextId: req.session.user.contextId, disc };
         let posts;
 
         if (postsCollection) {
@@ -543,7 +567,7 @@ app.get('/api/posts', requireAuth, async (req, res) => {
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.resourceLinkId === resourceLinkId && p.disc === disc)
+                .filter(p => p.contextId === req.session.user.contextId && p.disc === disc)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
