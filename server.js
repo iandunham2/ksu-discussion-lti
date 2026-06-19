@@ -350,6 +350,12 @@ app.post('/lti/test-launch', (req, res) => {
         ltiData.roles.toLowerCase().includes(role.toLowerCase())
     );
 
+    // Test launches have no D2L title map or disc mapping to resolve against, so derive a
+    // disc from the (optional) disc field or fall back to resourceLinkId. Without this, posts
+    // would save with disc=null and GET /api/posts (strict isolation guard) would never return
+    // them, making submissions appear to vanish on refresh.
+    const disc = req.body.disc || ltiData.resourceLinkId;
+
     req.session.user = {
         id: ltiData.userId,
         name: ltiData.userName,
@@ -358,7 +364,8 @@ app.post('/lti/test-launch', (req, res) => {
         contextId: ltiData.contextId,
         contextTitle: ltiData.contextTitle,
         resourceLinkId: ltiData.resourceLinkId,
-        resourceLinkTitle: ltiData.resourceLinkTitle
+        resourceLinkTitle: ltiData.resourceLinkTitle,
+        disc
     };
 
     req.session.save(() => {
