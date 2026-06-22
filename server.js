@@ -174,8 +174,11 @@ app.all('/lti/launch', async (req, res, next) => {
     // Direct GET access would create anonymous sessions and break grade passback.
     if (req.method === 'GET' && req.query.disc) {
         const disc = req.query.disc;
-        const is3340 = disc.includes('3340');
-        const contextId = is3340 ? '3991603' : '3991591';
+        // 3340 discussions belong on the dedicated 3340 server
+        if (disc.startsWith('3340-')) {
+            return res.redirect(`https://ksu-discussion-lti-3340.onrender.com/lti/launch?disc=${disc}`);
+        }
+        const contextId = '3991591';
 
         // Create a lightweight session for this user
         // In a real LTI launch we'd get this from the POST body
@@ -186,7 +189,7 @@ app.all('/lti/launch', async (req, res, next) => {
             email: req.query.user_email || 'student@kennesaw.edu',
             isInstructor: false,
             contextId: contextId,
-            contextTitle: is3340 ? 'COMM 3340' : 'MENT 3300',
+            contextTitle: 'MENT 3300',
             resourceLinkId: req.query.resource_link_id || disc,
             resourceLinkTitle: disc,
             disc: disc,
@@ -304,21 +307,17 @@ app.post('/lti/launch', (req, res) => {
         let disc = req.query.disc || null;
 
         // ext_d2l_link_id is the D2L content topic ID — unique per placed link, most reliable
+        // 3300 server only — 3340 IDs are intentionally excluded (handled by ksu-discussion-lti-3340)
         const TOPIC_ID_TO_DISC = {
             '62324565': '3300-disc0', '62324566': '3300-disc1', '62324567': '3300-disc2',
             '62324568': '3300-disc3', '62324569': '3300-disc4', '62324570': '3300-disc5',
             '62324571': '3300-disc6', '62324572': '3300-disc7', '62324573': '3300-disc8',
-            '61805440': '3340-mod1',  '61805441': '3340-mod2',  '61805442': '3340-mod3',
-            '61805443': '3340-mod4',  '61805444': '3340-mod5',  '61805445': '3340-mod6',
-            '61805446': '3340-mod7',  '61805447': '3340-mod8',  '61805448': '3340-mod9',
-            '61805449': '3340-mod10', '61805450': '3340-mod11', '61805451': '3340-mod13',
-            '61805452': '3340-mod15',
         };
         if (!disc && req.body.ext_d2l_link_id) {
             disc = TOPIC_ID_TO_DISC[String(req.body.ext_d2l_link_id)] || null;
         }
 
-        // Title map fallback — covers per-topic LTI links (MENT 3300 + COMM 3340)
+        // Title map fallback — covers per-topic LTI links (MENT 3300 only)
         if (!disc) {
             const titleMap = {
                 'Discussion 0: Introduce Yourself':                      '3300-disc0',
@@ -332,15 +331,14 @@ app.post('/lti/launch', (req, res) => {
                 'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
                 'Discussion 7: Episode Structure Analysis':              '3300-disc7',
                 'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
-                'Module 1 Discussion':  '3340-mod1',  'Module 2 Discussion':  '3340-mod2',
-                'Module 3 Discussion':  '3340-mod3',  'Module 4 Discussion':  '3340-mod4',
-                'Module 5 Discussion':  '3340-mod5',  'Module 6 Discussion':  '3340-mod6',
-                'Module 7 Discussion':  '3340-mod7',  'Module 8 Discussion':  '3340-mod8',
-                'Module 9 Discussion':  '3340-mod9',  'Module 10 Discussion': '3340-mod10',
-                'Module 11 Discussion': '3340-mod11', 'Module 13 Discussion': '3340-mod13',
-                'Module 15 Discussion': '3340-mod15',
             };
             disc = titleMap[ltiData.resourceLinkTitle] || null;
+        }
+
+        // Safety guard: this server only handles 3300 discussions
+        if (disc && disc.startsWith('3340-')) {
+            console.error(`[LTI Launch] BLOCKED: 3340 disc key "${disc}" attempted on 3300 server (link_id=${req.body.ext_d2l_link_id}, title="${ltiData.resourceLinkTitle}")`);
+            disc = null;
         }
 
         if (disc) {
