@@ -1,0 +1,20 @@
+name: Keep Render servers warm
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping ksu-discussion-lti (3300)
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ksu-discussion-lti.onrender.com/health)
+          echo "3300 server: $STATUS"
+
+      - name: Ping ksu-discussion-lti-3340 (3340)
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ksu-discussion-lti-3340.onrender.com/health)
+          echo "3340 server: $STATUS"
