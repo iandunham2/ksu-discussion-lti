@@ -195,9 +195,39 @@ app.all('/lti/launch', async (req, res, next) => {
             return res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`);
         }
 
-        // No session yet — show a page that opens a popup to trigger LTI auth,
-        // then polls until the session is established and reloads.
+        // No session yet — try D2L whoami with forwarded cookies, then set session
         if (disc) {
+            const rawCookies = req.headers.cookie || '';
+            const d2lCookies = rawCookies.split('; ').filter(c => c.startsWith('d2l')).join('; ');
+            if (d2lCookies) {
+                try {
+                    const D2L_BASE = 'https://kennesaw.view.usg.edu';
+                    const whoamiR = await fetch(`${D2L_BASE}/d2l/api/lp/1.30/users/whoami`, {
+                        headers: { Cookie: d2lCookies },
+                        signal: AbortSignal.timeout(5000),
+                    });
+                    if (whoamiR.ok) {
+                        const whoami = await whoamiR.json();
+                        const userId = String(whoami.Identifier);
+                        const userName = `${whoami.FirstName} ${whoami.LastName}`.trim() || whoami.UniqueName;
+                        const userEmail = `${whoami.UniqueName}@kennesaw.edu`;
+                        req.session.userId = userId;
+                        req.session.userName = userName;
+                        req.session.userEmail = userEmail;
+                        req.session.disc = disc;
+                        req.session.isInstructor = false;
+                        req.session.contextId = disc.startsWith('3340') ? '3991603' : '3991591';
+                        req.session.authMethod = 'D2L-cookie';
+                        console.log(`[GET Launch] Authenticated via whoami: ${userName} (${userId})`);
+                        return new Promise(resolve => req.session.save(() => {
+                            resolve(res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`));
+                        }));
+                    }
+                } catch (e) {
+                    console.warn('[GET Launch] whoami failed:', e.message);
+                }
+            }
+            // No D2L cookies or whoami failed — show self-auth page
             return res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -206,33 +236,22 @@ app.all('/lti/launch', async (req, res, next) => {
 body{font-family:sans-serif;max-width:500px;margin:60px auto;text-align:center;color:#333;}
 .spinner{width:40px;height:40px;border:4px solid #eee;border-top-color:#c8a217;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
 @keyframes spin{to{transform:rotate(360deg);}}
-button{margin-top:20px;padding:10px 24px;background:#c8a217;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
+a.btn{display:inline-block;margin-top:20px;padding:10px 24px;background:#c8a217;color:#fff;border-radius:6px;font-size:15px;text-decoration:none;}
 </style>
 </head>
 <body>
-<div class="spinner"></div>
-<h3>Authenticating...</h3>
-<p>Please wait while your session is being established.</p>
-<p id="msg"></p>
+<div class="spinner" id="spin"></div>
+<h3 id="heading">Loading Discussion...</h3>
+<p id="msg">Establishing your session...</p>
 <script>
-// Poll every 2 seconds — once session exists, server will redirect us to the discussion
-let attempts = 0;
-function poll() {
-    attempts++;
-    fetch('/api/session-check')
-        .then(r => r.json())
-        .then(d => {
-            if (d.authenticated) {
-                window.location.reload();
-            } else if (attempts > 15) {
-                document.getElementById('msg').textContent = 'Session timed out. Please reload the page from D2L.';
-            } else {
-                setTimeout(poll, 2000);
-            }
-        })
-        .catch(() => setTimeout(poll, 2000));
-}
-setTimeout(poll, 2000);
+fetch('/api/session-check').then(r=>r.json()).then(d=>{
+  if(d.authenticated){window.location.reload();}
+  else{
+    document.getElementById('spin').style.display='none';
+    document.getElementById('heading').textContent='Session Required';
+    document.getElementById('msg').innerHTML='Please <a href="javascript:window.location.reload()">reload this page</a> or navigate back to the course home and reopen this discussion.';
+  }
+});
 </script>
 </body>
 </html>`);
