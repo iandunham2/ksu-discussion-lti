@@ -160,6 +160,14 @@ const apiLimiter = rateLimit({
     message: { error: 'Too many requests' }
 });
 
+// Temporary debug: show cookies received by server (open this URL in D2L iframe to diagnose)
+app.get('/debug/cookies', (req, res) => {
+    const raw = req.headers.cookie || '(none)';
+    const names = raw === '(none)' ? [] : raw.split('; ').map(c => c.split('=')[0]);
+    const d2lPresent = names.filter(n => n.startsWith('d2l'));
+    res.send(`<pre>Cookie header: ${raw.length > 200 ? raw.slice(0,200)+'...' : raw}\n\nAll names: ${names.join(', ')}\n\nd2l cookies: ${d2lPresent.join(', ') || '(none)'}</pre>`);
+});
+
 // ======================
 // LTI 1.1 LAUNCH
 // ======================
