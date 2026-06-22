@@ -227,29 +227,31 @@ app.all('/lti/launch', async (req, res, next) => {
                     console.warn('[GET Launch] whoami failed:', e.message);
                 }
             }
-            // No D2L cookies or whoami failed — show self-auth page
+            // No D2L cookies or whoami failed — show helpful fallback page
             return res.send(`<!DOCTYPE html>
 <html>
 <head>
 <title>Loading Discussion...</title>
 <style>
-body{font-family:sans-serif;max-width:500px;margin:60px auto;text-align:center;color:#333;}
-.spinner{width:40px;height:40px;border:4px solid #eee;border-top-color:#c8a217;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
+body{font-family:sans-serif;max-width:520px;margin:60px auto;padding:0 20px;text-align:center;color:#333;}
+.spinner{width:36px;height:36px;border:4px solid #eee;border-top-color:#c8a217;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
 @keyframes spin{to{transform:rotate(360deg);}}
-a.btn{display:inline-block;margin-top:20px;padding:10px 24px;background:#c8a217;color:#fff;border-radius:6px;font-size:15px;text-decoration:none;}
+.box{background:#fff8e1;border:1px solid #c8a217;border-radius:8px;padding:16px 20px;margin-top:24px;text-align:left;font-size:14px;}
+button{margin-top:16px;padding:10px 28px;background:#c8a217;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
 </style>
 </head>
 <body>
 <div class="spinner" id="spin"></div>
 <h3 id="heading">Loading Discussion...</h3>
-<p id="msg">Establishing your session...</p>
+<div id="content"></div>
 <script>
 fetch('/api/session-check').then(r=>r.json()).then(d=>{
-  if(d.authenticated){window.location.reload();}
-  else{
-    document.getElementById('spin').style.display='none';
-    document.getElementById('heading').textContent='Session Required';
-    document.getElementById('msg').innerHTML='Please <a href="javascript:window.location.reload()">reload this page</a> or navigate back to the course home and reopen this discussion.';
+  document.getElementById('spin').style.display='none';
+  if(d.authenticated){
+    window.location.reload();
+  } else {
+    document.getElementById('heading').textContent='One more step';
+    document.getElementById('content').innerHTML='<div class="box"><strong>Your session needs to be established.</strong><br><br>Please <strong>reload this page</strong> — if the issue persists, go back to the D2L course home and click the discussion link again.</div><button onclick="window.location.reload()">Reload Page</button>';
   }
 });
 </script>
