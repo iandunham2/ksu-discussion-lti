@@ -250,6 +250,7 @@ app.post('/lti/launch', (req, res) => {
         Object.entries(req.body).filter(([k]) => !k.startsWith('oauth_signature'))
     ), null, 2));
     provider.valid_request(req, async (err, isValid) => {
+      try {
         if (!isValid && !isDev) {
             console.error('LTI validation failed:', err);
             return res.status(401).send('LTI launch validation failed. Please launch from D2L.');
@@ -306,8 +307,10 @@ app.post('/lti/launch', (req, res) => {
 
         let dbDisc = null;
         if (!isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
-            const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
-            if (mapping) dbDisc = mapping.disc;
+            try {
+                const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
+                if (mapping) dbDisc = mapping.disc;
+            } catch (e) { console.error('[LTI POST] discMappings lookup failed:', e); }
         }
 
         // Query param takes highest priority — allows unique URLs like ?disc=3340-mod5
@@ -398,6 +401,10 @@ app.post('/lti/launch', (req, res) => {
                 }
             });
         });
+      } catch (e) {
+        console.error('[LTI POST] Unhandled error:', e);
+        if (!res.headersSent) res.status(500).send('Internal server error during LTI launch.');
+      }
     });
 });
 
