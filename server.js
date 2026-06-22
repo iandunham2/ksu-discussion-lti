@@ -171,54 +171,25 @@ app.all('/lti/launch', async (req, res, next) => {
     console.log(`  Query: ${JSON.stringify(req.query)}`);
     console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
 
-    // GET with ?disc= must still go through D2L LTI POST for authentication.
-    // Direct GET access would create anonymous sessions and break grade passback.
-    if (req.method === 'GET' && req.query.disc) {
-        const disc = req.query.disc;
-        // 3340 discussions belong on the dedicated 3340 server
-        if (disc.startsWith('3340-')) {
-            return res.redirect(`https://ksu-discussion-lti-3340.onrender.com/lti/launch?disc=${disc}`);
-        }
-        const contextId = '3991591';
-
-        // Create a lightweight session for this user
-        // In a real LTI launch we'd get this from the POST body
-        // For direct links, we use query params or defaults
-        const userData = {
-            id: req.query.user_id || 'student-' + Date.now(),
-            name: req.query.user_name || 'Student',
-            email: req.query.user_email || 'student@kennesaw.edu',
-            isInstructor: false,
-            contextId: contextId,
-            contextTitle: 'MENT 3300',
-            resourceLinkId: req.query.resource_link_id || disc,
-            resourceLinkTitle: disc,
-            disc: disc,
-            outcomeServiceUrl: '',
-            resultSourcedId: ''
-        };
-
-        // Store disc mapping for this lightweight launch, keyed by the unique-per-link id.
-        // Fire-and-forget — never await so a DB hiccup cannot crash the GET handler.
-        if (discMappingsCollection && userData.resourceLinkId) {
-            discMappingsCollection.updateOne(
-                { resourceLinkId: userData.resourceLinkId },
-                { $set: { resourceLinkId: userData.resourceLinkId, disc, resultSourcedId: userData.resultSourcedId, userId: userData.id, updatedAt: new Date().toISOString() } },
-                { upsert: true }
-            ).catch(e => console.error('[GET Launch] disc mapping write failed:', e));
-        }
-
-        req.session.regenerate((err) => {
-            if (err) console.error('Session regenerate error:', err);
-            req.session.user = userData;
-            req.session.save((err2) => {
-                if (err2) console.error('Session save error:', err2);
-                const ltiToken = createLtiToken(userData);
-                console.log(`[GET Launch] Redirecting to discussion.html with disc=${disc}`);
-                res.redirect(`/discussion.html?lti_token=${ltiToken}`);
-            });
-        });
-        return;
+    // GET requests: D2L always follows up with an LTI POST for ActivityType=7 topics.
+    // Never create a fake student session on GET — just show the landing page and
+    // let the POST establish the real authenticated session with the correct role.
+    if (req.method === 'GET') {
+        console.log(`[GET Launch] Showing landing page (disc=${req.query.disc || 'none'})`);
+        return res.send(`<!DOCTYPE html>
+<html>
+<head><title>Loading Discussion...</title>
+<meta http-equiv="refresh" content="3">
+<style>body{font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;color:#333;}
+.spinner{width:40px;height:40px;border:4px solid #eee;border-top-color:#c8a217;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
+@keyframes spin{to{transform:rotate(360deg);}}</style>
+</head>
+<body>
+<div class="spinner"></div>
+<h3>Loading discussion...</h3>
+<p>Please wait while D2L authenticates your session.</p>
+</body>
+</html>`);
     }
 
     // POST requests go to normal LTI handler
