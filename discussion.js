@@ -126,7 +126,7 @@ class DiscussionBoard {
                     <div class="post-body">${this.escapeHtml(post.text)}</div>
                     <div class="post-footer">
                         <span class="post-word-count">${post.wordCount} words</span>
-                        <button class="reply-btn" onclick="board.startReply('${post.id}', '${this.escapeHtml(post.authorName)}')">Reply</button>
+                        <button class="reply-btn" data-reply-id="${post.id}" data-reply-name="${this.escapeHtml(post.authorName)}">Reply</button>
                     </div>
                     ${postReplies.length > 0 ? `
                         <div class="replies">
@@ -151,16 +151,45 @@ class DiscussionBoard {
 
     startReply(postId, authorName) {
         this.replyingTo = postId;
+
+        // Update heading
         this.composeHeading.textContent = `Replying to ${authorName}`;
         this.cancelReplyBtn.style.display = 'inline-block';
-        this.editor.focus();
-        document.getElementById('compose-section').scrollIntoView({ behavior: 'smooth' });
+
+        // Show prominent reply banner
+        let banner = document.getElementById('reply-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'reply-banner';
+            banner.style.cssText = 'background:#FFC72C;color:#000;padding:8px 14px;border-radius:6px;font-weight:600;font-size:0.95em;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;';
+            this.editor.parentNode.insertBefore(banner, this.editor);
+        }
+        banner.innerHTML = `<span>↩ Replying to <strong>${this.escapeHtml(authorName)}</strong></span>`;
+        banner.style.display = 'flex';
+
+        // Highlight the post being replied to
+        document.querySelectorAll('.post-card.replying-target').forEach(el => el.classList.remove('replying-target'));
+        const target = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+        if (target) target.classList.add('replying-target');
+
+        // Scroll compose area into view — works inside D2L iframes
+        const section = document.getElementById('compose-section');
+        try {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (e) {
+            section.scrollIntoView(true);
+        }
+        // Delay focus slightly so scroll completes first
+        setTimeout(() => { try { this.editor.focus(); } catch(e) {} }, 200);
     }
 
     cancelReply() {
         this.replyingTo = null;
         this.composeHeading.textContent = 'New Post';
         this.cancelReplyBtn.style.display = 'none';
+        const banner = document.getElementById('reply-banner');
+        if (banner) banner.style.display = 'none';
+        document.querySelectorAll('.post-card.replying-target').forEach(el => el.classList.remove('replying-target'));
     }
 
     async submitPost() {
@@ -553,6 +582,14 @@ class DiscussionBoard {
         this.saveDraftBtn.addEventListener('click', () => this.saveDraft());
         this.cancelReplyBtn.addEventListener('click', () => this.cancelReply());
         this.refreshBtn.addEventListener('click', () => this.loadPosts());
+
+        // Event delegation for reply buttons — avoids inline onclick and works with dynamically rendered posts
+        this.postsContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('.reply-btn[data-reply-id]');
+            if (btn) {
+                this.startReply(btn.dataset.replyId, btn.dataset.replyName);
+            }
+        });
     }
 
     startAutoRefresh() {

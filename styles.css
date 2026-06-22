@@ -706,3 +706,8 @@ footer {
         position: static;
     }
 }
+
+.post-card.replying-target {
+    border-left: 4px solid #FFC72C;
+    background: #fffbf0;
+}
