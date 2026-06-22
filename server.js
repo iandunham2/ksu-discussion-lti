@@ -166,6 +166,7 @@ const apiLimiter = rateLimit({
 
 // Handle both GET (direct link) and POST (LTI launch) requests
 app.all('/lti/launch', async (req, res, next) => {
+    try {
     console.log(`[LTI Launch] ${req.method} ${req.originalUrl}`);
     console.log(`  Query: ${JSON.stringify(req.query)}`);
     console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
@@ -222,6 +223,11 @@ app.all('/lti/launch', async (req, res, next) => {
     // POST requests go to normal LTI handler
     if (req.method === 'POST') {
         return next();
+    }
+    } catch (err) {
+        console.error('[LTI Launch] Unhandled error:', err);
+        if (!res.headersSent) return next(err);
+        return;
     }
 
     // No disc param - show landing page
