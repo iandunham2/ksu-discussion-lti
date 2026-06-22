@@ -160,12 +160,14 @@ const apiLimiter = rateLimit({
     message: { error: 'Too many requests' }
 });
 
-// Temporary debug: show cookies received by server (open this URL in D2L iframe to diagnose)
+// Temporary debug: show everything the server receives
 app.get('/debug/cookies', (req, res) => {
     const raw = req.headers.cookie || '(none)';
     const names = raw === '(none)' ? [] : raw.split('; ').map(c => c.split('=')[0]);
     const d2lPresent = names.filter(n => n.startsWith('d2l'));
-    res.send(`<pre>Cookie header: ${raw.length > 200 ? raw.slice(0,200)+'...' : raw}\n\nAll names: ${names.join(', ')}\n\nd2l cookies: ${d2lPresent.join(', ') || '(none)'}</pre>`);
+    const headers = Object.entries(req.headers).map(([k,v]) => `${k}: ${v}`).join('\n');
+    const query = JSON.stringify(req.query, null, 2);
+    res.send(`<pre>Query params:\n${query}\n\nd2l cookies: ${d2lPresent.join(', ') || '(none)'}\n\nAll cookie names: ${names.join(', ')}\n\nAll headers:\n${headers}</pre>`);
 });
 
 // ======================
