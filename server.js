@@ -182,76 +182,63 @@ app.all('/lti/launch', async (req, res, next) => {
     console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
 
     // GET requests: D2L opens plain-link topics (ActivityType=2) via GET in an iframe.
-    // D2L session cookies are SameSite=None so they ARE forwarded cross-site.
-    // Authenticate via D2L whoami API using the forwarded cookies, then serve discussion.
+    // Our connect.sid session cookie IS forwarded cross-site (SameSite=None in prod).
+    // If the user has an existing session from a prior LTI POST, serve them directly.
     if (req.method === 'GET') {
         const disc = req.query.disc || null;
-        const cookieNames = (req.headers.cookie || '').split('; ').map(c => c.split('=')[0]).join(',');
-        console.log(`[GET Launch] disc=${disc} cookies=${cookieNames}`);
+        console.log(`[GET Launch] disc=${disc} sessionUserId=${req.session.userId || 'none'}`);
 
-        // Build cookie string from forwarded D2L session cookies
-        // Parse from raw Cookie header — no cookie-parser needed
-        const rawCookies = req.headers.cookie || '';
-        const d2lCookie = rawCookies.split('; ')
-            .filter(c => c.startsWith('d2l'))
-            .join('; ');
-
-        if (d2lCookie && disc) {
-            try {
-                const D2L_BASE = 'https://kennesaw.view.usg.edu';
-                const whoamiR = await fetch(`${D2L_BASE}/d2l/api/lp/1.30/users/whoami`, {
-                    headers: { Cookie: d2lCookie },
-                    signal: AbortSignal.timeout(5000),
-                });
-                if (whoamiR.ok) {
-                    const whoami = await whoamiR.json();
-                    console.log(`[GET Launch] Authenticated via D2L cookie: ${whoami.UniqueName} (${whoami.Identifier})`);
-
-                    // Synthesize LTI-like session data from D2L whoami
-                    const userId = String(whoami.Identifier);
-                    const userName = `${whoami.FirstName} ${whoami.LastName}`.trim() || whoami.UniqueName;
-                    const userEmail = `${whoami.UniqueName}@kennesaw.edu`;
-
-                    // Check enrollment role in course to determine instructor status
-                    // Default to student; instructor check via enrollment API
-                    let isInstructor = false;
-                    const courseId = disc.startsWith('3300') ? '3991591' : '3991603';
-                    try {
-                        const enrollR = await fetch(`${D2L_BASE}/d2l/api/le/1.91/${courseId}/enrollments/myenrollment/`, {
-                            headers: { Cookie: d2lCookie },
-                            signal: AbortSignal.timeout(5000),
-                        });
-                        if (enrollR.ok) {
-                            const enroll = await enrollR.json();
-                            const roleId = enroll?.Role?.Id;
-                            // Role 109 = Instructor, 110 = TA — adjust if needed
-                            isInstructor = roleId && (roleId < 108 || roleId === 109 || roleId === 117);
-                            console.log(`[GET Launch] Role ID: ${roleId} isInstructor=${isInstructor}`);
-                        }
-                    } catch (e) {
-                        console.warn('[GET Launch] Enrollment check failed:', e.message);
-                    }
-
-                    // Store session and redirect to discussion
-                    req.session.userId = userId;
-                    req.session.userName = userName;
-                    req.session.userEmail = userEmail;
-                    req.session.disc = disc;
-                    req.session.isInstructor = isInstructor;
-                    req.session.contextId = courseId;
-                    req.session.authMethod = 'D2L-cookie';
-
-                    return res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`);
-                } else {
-                    console.log(`[GET Launch] whoami returned ${whoamiR.status}`);
-                }
-            } catch (e) {
-                console.warn('[GET Launch] D2L cookie auth failed:', e.message);
-            }
+        if (disc && req.session.userId) {
+            // Existing authenticated session — update disc and serve discussion
+            console.log(`[GET Launch] Reusing session for user=${req.session.userId}`);
+            req.session.disc = disc;
+            return res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`);
         }
 
-        // Fallback: no D2L cookies forwarded or auth failed
-        console.log(`[GET Launch] No D2L cookies — showing landing page`);
+        // No session yet — show a page that opens a popup to trigger LTI auth,
+        // then polls until the session is established and reloads.
+        if (disc) {
+            return res.send(`<!DOCTYPE html>
+<html>
+<head>
+<title>Loading Discussion...</title>
+<style>
+body{font-family:sans-serif;max-width:500px;margin:60px auto;text-align:center;color:#333;}
+.spinner{width:40px;height:40px;border:4px solid #eee;border-top-color:#c8a217;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
+@keyframes spin{to{transform:rotate(360deg);}}
+button{margin-top:20px;padding:10px 24px;background:#c8a217;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="spinner"></div>
+<h3>Authenticating...</h3>
+<p>Please wait while your session is being established.</p>
+<p id="msg"></p>
+<script>
+// Poll every 2 seconds — once session exists, server will redirect us to the discussion
+let attempts = 0;
+function poll() {
+    attempts++;
+    fetch('/api/session-check')
+        .then(r => r.json())
+        .then(d => {
+            if (d.authenticated) {
+                window.location.reload();
+            } else if (attempts > 15) {
+                document.getElementById('msg').textContent = 'Session timed out. Please reload the page from D2L.';
+            } else {
+                setTimeout(poll, 2000);
+            }
+        })
+        .catch(() => setTimeout(poll, 2000));
+}
+setTimeout(poll, 2000);
+</script>
+</body>
+</html>`);
+        }
+
+        // No disc param
         return res.send(`<!DOCTYPE html>
 <html>
 <head><title>Discussion Tool</title></head>
@@ -497,6 +484,10 @@ app.post('/lti/test-launch', (req, res) => {
 });
 
 // Health check endpoint for Render
+app.get('/api/session-check', (req, res) => {
+    res.json({ authenticated: !!(req.session && req.session.userId) });
+});
+
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
