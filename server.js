@@ -199,12 +199,13 @@ app.all('/lti/launch', async (req, res, next) => {
         };
 
         // Store disc mapping for this lightweight launch, keyed by the unique-per-link id.
+        // Fire-and-forget — never await so a DB hiccup cannot crash the GET handler.
         if (discMappingsCollection && userData.resourceLinkId) {
-            await discMappingsCollection.updateOne(
+            discMappingsCollection.updateOne(
                 { resourceLinkId: userData.resourceLinkId },
                 { $set: { resourceLinkId: userData.resourceLinkId, disc, resultSourcedId: userData.resultSourcedId, userId: userData.id, updatedAt: new Date().toISOString() } },
                 { upsert: true }
-            );
+            ).catch(e => console.error('[GET Launch] disc mapping write failed:', e));
         }
 
         req.session.regenerate((err) => {
