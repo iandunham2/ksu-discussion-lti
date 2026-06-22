@@ -125,6 +125,35 @@ if (!isDev) {
 
 app.use(session(sessionConfig));
 
+// ======================
+// LTI TOKEN STORE (Safari ITP workaround)
+// iOS Safari blocks third-party cookies in iframes even with SameSite=None.
+// We issue a short-lived token after launch and embed it in the redirect URL.
+// The client sends it as X-LTI-Token on every request as a session fallback.
+// ======================
+const ltiTokenStore = new Map(); // token -> { userData, expires }
+const LTI_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function createLtiToken(userData) {
+    const token = crypto.randomBytes(32).toString('hex');
+    ltiTokenStore.set(token, { userData, expires: Date.now() + LTI_TOKEN_TTL_MS });
+    return token;
+}
+
+function lookupLtiToken(token) {
+    if (!token) return null;
+    const entry = ltiTokenStore.get(token);
+    if (!entry) return null;
+    if (Date.now() > entry.expires) { ltiTokenStore.delete(token); return null; }
+    return entry.userData;
+}
+
+// Purge expired tokens every 10 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of ltiTokenStore) { if (now > v.expires) ltiTokenStore.delete(k); }
+}, 10 * 60 * 1000);
+
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 60,
@@ -179,8 +208,9 @@ app.all('/lti/launch', async (req, res, next) => {
             req.session.user = userData;
             req.session.save((err2) => {
                 if (err2) console.error('Session save error:', err2);
+                const ltiToken = createLtiToken(userData);
                 console.log(`[GET Launch] Redirecting to discussion.html with disc=${disc}`);
-                res.redirect('/discussion.html');
+                res.redirect(`/discussion.html?lti_token=${ltiToken}`);
             });
         });
         return;
@@ -353,12 +383,13 @@ app.post('/lti/launch', (req, res) => {
             req.session.user = userData;
             req.session.save((err2) => {
                 if (err2) console.error('Session save error:', err2);
+                const ltiToken = createLtiToken(userData);
                 if (isInstructor) {
-                    res.redirect('/instructor.html');
+                    res.redirect(`/instructor.html?lti_token=${ltiToken}`);
                 } else if (!disc && ltiData.resultSourcedId) {
-                    res.redirect('/pick-discussion.html');
+                    res.redirect(`/pick-discussion.html?lti_token=${ltiToken}`);
                 } else {
-                    res.redirect('/discussion.html');
+                    res.redirect(`/discussion.html?lti_token=${ltiToken}`);
                 }
             });
         });
@@ -440,10 +471,15 @@ if (isDev) {
 // ======================
 
 function requireAuth(req, res, next) {
-    if (!req.session.user) {
-        return res.status(401).json({ error: 'Not authenticated. Please launch from D2L.' });
+    if (req.session.user) return next();
+    // Safari ITP fallback: session cookie may have been blocked — check token header
+    const token = req.headers['x-lti-token'];
+    const userData = lookupLtiToken(token);
+    if (userData) {
+        req.session.user = userData; // hydrate session for this request
+        return next();
     }
-    next();
+    return res.status(401).json({ error: 'Not authenticated. Please launch from D2L.' });
 }
 
 function requireInstructor(req, res, next) {

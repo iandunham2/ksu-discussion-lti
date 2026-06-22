@@ -19,6 +19,16 @@ class DiscussionBoard {
         this.userInfo = null;
         this.replyingTo = null; // parentId for reply mode
 
+        // Safari ITP workaround: capture token from URL and persist for this tab session
+        const urlToken = new URLSearchParams(window.location.search).get('lti_token');
+        if (urlToken) {
+            sessionStorage.setItem('lti_token', urlToken);
+            // Clean token from URL bar without triggering a reload
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, '', cleanUrl);
+        }
+        this.ltiToken = sessionStorage.getItem('lti_token') || null;
+
         // Typing analytics
         this.keystrokeCounter = 0;
         this.pasteAttempts = 0;
@@ -60,9 +70,15 @@ class DiscussionBoard {
     // USER & CONTEXT
     // ======================
 
+    apiHeaders() {
+        const h = { 'Content-Type': 'application/json' };
+        if (this.ltiToken) h['X-LTI-Token'] = this.ltiToken;
+        return h;
+    }
+
     async fetchUserInfo() {
         try {
-            const response = await fetch('/api/user');
+            const response = await fetch('/api/user', { headers: this.ltiToken ? { 'X-LTI-Token': this.ltiToken } : {} });
             if (response.ok) {
                 this.userInfo = await response.json();
                 this.userInfoDisplay.textContent = `Logged in as: ${this.userInfo.name}`;
@@ -92,7 +108,7 @@ class DiscussionBoard {
 
     async loadPosts() {
         try {
-            const response = await fetch('/api/posts');
+            const response = await fetch('/api/posts', { headers: this.ltiToken ? { 'X-LTI-Token': this.ltiToken } : {} });
             if (!response.ok) throw new Error('Failed to load');
             const posts = await response.json();
             this.renderPosts(posts);
@@ -213,7 +229,7 @@ class DiscussionBoard {
 
             const response = await fetch('/api/posts', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.apiHeaders(),
                 body: JSON.stringify({
                     text,
                     parentId: this.replyingTo || null,
@@ -540,7 +556,7 @@ class DiscussionBoard {
             const scratchPad = document.getElementById('scratch-pad');
             await fetch('/api/save-draft', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.apiHeaders(),
                 body: JSON.stringify({
                     text: this.editor.textContent || '',
                     scratchPad: scratchPad ? scratchPad.innerHTML : ''
@@ -555,7 +571,7 @@ class DiscussionBoard {
 
     async loadDraft() {
         try {
-            const response = await fetch('/api/load-draft');
+            const response = await fetch('/api/load-draft', { headers: this.ltiToken ? { 'X-LTI-Token': this.ltiToken } : {} });
             if (!response.ok) return;
             const data = await response.json();
             if (!data.found || !data.text) return;
