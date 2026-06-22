@@ -171,23 +171,17 @@ app.all('/lti/launch', async (req, res, next) => {
     console.log(`  Query: ${JSON.stringify(req.query)}`);
     console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
 
-    // GET requests: D2L always follows up with an LTI POST for ActivityType=7 topics.
-    // Never create a fake student session on GET — just show the landing page and
-    // let the POST establish the real authenticated session with the correct role.
+    // GET requests arrive when D2L loads the iframe URL directly.
+    // Show the landing page — the LTI POST will come separately from D2L.
     if (req.method === 'GET') {
         console.log(`[GET Launch] Showing landing page (disc=${req.query.disc || 'none'})`);
         return res.send(`<!DOCTYPE html>
 <html>
-<head><title>Loading Discussion...</title>
-<meta http-equiv="refresh" content="3">
-<style>body{font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;color:#333;}
-.spinner{width:40px;height:40px;border:4px solid #eee;border-top-color:#c8a217;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
-@keyframes spin{to{transform:rotate(360deg);}}</style>
-</head>
-<body>
-<div class="spinner"></div>
-<h3>Loading discussion...</h3>
-<p>Please wait while D2L authenticates your session.</p>
+<head><title>Discussion Tool</title></head>
+<body style="font-family:sans-serif;max-width:600px;margin:50px auto;padding:20px;">
+    <h2>🔒 LTI Discussion Tool</h2>
+    <p>This tool must be launched from D2L Brightspace.</p>
+    <p>Please return to your D2L course and click the discussion link from there.</p>
 </body>
 </html>`);
     }
