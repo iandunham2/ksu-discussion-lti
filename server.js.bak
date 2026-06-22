@@ -13,11 +13,6 @@ const crypto = require('crypto');
 const path = require('path');
 const { MongoClient, ObjectId } = require('mongodb');
 const lti = require('ims-lti');
-const {
-    CORRECT_3300_INSTRUCTIONS,
-    resolveDisc,
-    discFromTitle,
-} = require('./discussion-config.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,7 +47,7 @@ if (isDev) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection, discMappingsCollection;
+let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -66,16 +61,14 @@ async function connectDatabase() {
         draftsCollection = db.collection('drafts');
         outcomesCollection = db.collection('outcomes');
         discussionLabelsCollection = db.collection('discussionLabels');
-        discMappingsCollection = db.collection('discMappings');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
         await postsCollection.createIndex({ parentId: 1 });
         await postsCollection.createIndex({ authorEmail: 1 });
-        await draftsCollection.createIndex({ userEmail: 1, resourceLinkId: 1 }, { unique: true });
+        await draftsCollection.createIndex({ userEmail: 1, contextId: 1 }, { unique: true });
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
-        await discMappingsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
 
         console.log('✅ MongoDB connected');
     } catch (error) {
@@ -125,35 +118,6 @@ if (!isDev) {
 
 app.use(session(sessionConfig));
 
-// ======================
-// LTI TOKEN STORE (Safari ITP workaround)
-// iOS Safari blocks third-party cookies in iframes even with SameSite=None.
-// We issue a short-lived token after launch and embed it in the redirect URL.
-// The client sends it as X-LTI-Token on every request as a session fallback.
-// ======================
-const ltiTokenStore = new Map(); // token -> { userData, expires }
-const LTI_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
-function createLtiToken(userData) {
-    const token = crypto.randomBytes(32).toString('hex');
-    ltiTokenStore.set(token, { userData, expires: Date.now() + LTI_TOKEN_TTL_MS });
-    return token;
-}
-
-function lookupLtiToken(token) {
-    if (!token) return null;
-    const entry = ltiTokenStore.get(token);
-    if (!entry) return null;
-    if (Date.now() > entry.expires) { ltiTokenStore.delete(token); return null; }
-    return entry.userData;
-}
-
-// Purge expired tokens every 10 minutes
-setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of ltiTokenStore) { if (now > v.expires) ltiTokenStore.delete(k); }
-}, 10 * 60 * 1000);
-
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 60,
@@ -164,126 +128,10 @@ const apiLimiter = rateLimit({
 // LTI 1.1 LAUNCH
 // ======================
 
-// Handle both GET (direct link) and POST (LTI launch) requests
-app.all('/lti/launch', async (req, res, next) => {
-    try {
-    console.log(`[LTI Launch] ${req.method} ${req.originalUrl}`);
-    console.log(`  Query: ${JSON.stringify(req.query)}`);
-    console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
-
-    // GET requests: D2L opens plain-link topics (ActivityType=2) via GET in an iframe.
-    // D2L session cookies are SameSite=None so they ARE forwarded cross-site.
-    // Authenticate via D2L whoami API using the forwarded cookies, then serve discussion.
-    if (req.method === 'GET') {
-        const disc = req.query.disc || null;
-        const cookieNames = (req.headers.cookie || '').split('; ').map(c => c.split('=')[0]).join(',');
-        console.log(`[GET Launch] disc=${disc} cookies=${cookieNames}`);
-
-        // Build cookie string from forwarded D2L session cookies
-        // Parse from raw Cookie header — no cookie-parser needed
-        const rawCookies = req.headers.cookie || '';
-        const d2lCookie = rawCookies.split('; ')
-            .filter(c => c.startsWith('d2l'))
-            .join('; ');
-
-        if (d2lCookie && disc) {
-            try {
-                const D2L_BASE = 'https://kennesaw.view.usg.edu';
-                const whoamiR = await fetch(`${D2L_BASE}/d2l/api/lp/1.30/users/whoami`, {
-                    headers: { Cookie: d2lCookie },
-                    signal: AbortSignal.timeout(5000),
-                });
-                if (whoamiR.ok) {
-                    const whoami = await whoamiR.json();
-                    console.log(`[GET Launch] Authenticated via D2L cookie: ${whoami.UniqueName} (${whoami.Identifier})`);
-
-                    // Synthesize LTI-like session data from D2L whoami
-                    const userId = String(whoami.Identifier);
-                    const userName = `${whoami.FirstName} ${whoami.LastName}`.trim() || whoami.UniqueName;
-                    const userEmail = `${whoami.UniqueName}@kennesaw.edu`;
-
-                    // Check enrollment role in course to determine instructor status
-                    // Default to student; instructor check via enrollment API
-                    let isInstructor = false;
-                    const courseId = disc.startsWith('3300') ? '3991591' : '3991603';
-                    try {
-                        const enrollR = await fetch(`${D2L_BASE}/d2l/api/le/1.91/${courseId}/enrollments/myenrollment/`, {
-                            headers: { Cookie: d2lCookie },
-                            signal: AbortSignal.timeout(5000),
-                        });
-                        if (enrollR.ok) {
-                            const enroll = await enrollR.json();
-                            const roleId = enroll?.Role?.Id;
-                            // Role 109 = Instructor, 110 = TA — adjust if needed
-                            isInstructor = roleId && (roleId < 108 || roleId === 109 || roleId === 117);
-                            console.log(`[GET Launch] Role ID: ${roleId} isInstructor=${isInstructor}`);
-                        }
-                    } catch (e) {
-                        console.warn('[GET Launch] Enrollment check failed:', e.message);
-                    }
-
-                    // Store session and redirect to discussion
-                    req.session.userId = userId;
-                    req.session.userName = userName;
-                    req.session.userEmail = userEmail;
-                    req.session.disc = disc;
-                    req.session.isInstructor = isInstructor;
-                    req.session.contextId = courseId;
-                    req.session.authMethod = 'D2L-cookie';
-
-                    return res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`);
-                } else {
-                    console.log(`[GET Launch] whoami returned ${whoamiR.status}`);
-                }
-            } catch (e) {
-                console.warn('[GET Launch] D2L cookie auth failed:', e.message);
-            }
-        }
-
-        // Fallback: no D2L cookies forwarded or auth failed
-        console.log(`[GET Launch] No D2L cookies — showing landing page`);
-        return res.send(`<!DOCTYPE html>
-<html>
-<head><title>Discussion Tool</title></head>
-<body style="font-family:sans-serif;max-width:600px;margin:50px auto;padding:20px;">
-    <h2>🔒 LTI Discussion Tool</h2>
-    <p>This tool must be launched from D2L Brightspace.</p>
-    <p>Please return to your D2L course and click the discussion link from there.</p>
-</body>
-</html>`);
-    }
-
-    // POST requests go to normal LTI handler
-    if (req.method === 'POST') {
-        return next();
-    }
-    } catch (err) {
-        console.error('[LTI Launch] Unhandled error:', err);
-        if (!res.headersSent) return next(err);
-        return;
-    }
-
-    // No disc param - show landing page
-    res.send(`<!DOCTYPE html>
-<html>
-<head><title>Discussion Tool</title></head>
-<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
-    <h2>🔒 LTI Discussion Tool</h2>
-    <p>This tool must be launched from D2L Brightspace.</p>
-    <p>Please return to your D2L course and click the discussion link from there.</p>
-</body>
-</html>`);
-});
-
 app.post('/lti/launch', (req, res) => {
-    console.log('>>>>>> LTI POST HIT <<<<<< body keys:', Object.keys(req.body || {}).join(','));
     const provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
 
-    console.log('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
-        Object.entries(req.body).filter(([k]) => !k.startsWith('oauth_signature'))
-    ), null, 2));
-    provider.valid_request(req, async (err, isValid) => {
-      try {
+    provider.valid_request(req, (err, isValid) => {
         if (!isValid && !isDev) {
             console.error('LTI validation failed:', err);
             return res.status(401).send('LTI launch validation failed. Please launch from D2L.');
@@ -301,6 +149,9 @@ app.post('/lti/launch', (req, res) => {
             roles: req.body.roles || '',
             contextId: req.body.context_id || 'default',
             contextTitle: req.body.context_title || 'Discussion',
+            // ext_d2l_link_id is the unique content topic ID per placement in D2L.
+            // resource_link_id is shared across all topics using the same LTI rcode,
+            // so we prefer ext_d2l_link_id to disambiguate individual discussions.
             resourceLinkId: req.body.ext_d2l_link_id || req.body.resource_link_id || 'default',
             resourceLinkTitle: req.body.resource_link_title || 'Discussion Board',
             consumerKey: req.body.oauth_consumer_key,
@@ -314,6 +165,20 @@ app.post('/lti/launch', (req, res) => {
         const isInstructor = config.instructorRoles.some(role =>
             ltiData.roles.toLowerCase().includes(role.toLowerCase())
         );
+
+        // Store in session
+        req.session.user = {
+            id: ltiData.userId,
+            name: ltiData.userName,
+            email: ltiData.userEmail,
+            isInstructor,
+            contextId: ltiData.contextId,
+            contextTitle: ltiData.contextTitle,
+            resourceLinkId: ltiData.resourceLinkId,
+            resourceLinkTitle: ltiData.resourceLinkTitle,
+            outcomeServiceUrl: ltiData.outcomeServiceUrl,
+            resultSourcedId: ltiData.resultSourcedId
+        };
 
         // Store outcomes data for grade passback (students only)
         if (!isInstructor && ltiData.outcomeServiceUrl && ltiData.resultSourcedId) {
@@ -338,106 +203,14 @@ app.post('/lti/launch', (req, res) => {
             }
         }
 
-        let dbDisc = null;
-        if (!isInstructor && ltiData.resultSourcedId && discMappingsCollection) {
-            try {
-                const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
-                if (mapping) dbDisc = mapping.disc;
-            } catch (e) { console.error('[LTI POST] discMappings lookup failed:', e); }
-        }
-
-        // Query param takes highest priority — allows unique URLs like ?disc=3340-mod5
-        let disc = req.query.disc || null;
-
-        // ext_d2l_link_id is the D2L content topic ID — unique per placed link, most reliable
-        // 3300 server only — 3340 IDs are intentionally excluded (handled by ksu-discussion-lti-3340)
-        const TOPIC_ID_TO_DISC = {
-            '62350211': '3300-disc0', '62350212': '3300-disc1', '62350213': '3300-disc2',
-            '62350214': '3300-disc3', '62350215': '3300-disc4', '62350216': '3300-disc5',
-            '62350217': '3300-disc6', '62350218': '3300-disc7', '62350219': '3300-disc8',
-        };
-        if (!disc && req.body.ext_d2l_link_id) {
-            disc = TOPIC_ID_TO_DISC[String(req.body.ext_d2l_link_id)] || null;
-        }
-
-        // Title map fallback — covers per-topic LTI links (MENT 3300 only)
-        if (!disc) {
-            const titleMap = {
-                'Discussion 0: Introduce Yourself':                      '3300-disc0',
-                'Discussion 1: Choose Your Podcast Topic':               '3300-disc1',
-                'Discussion 1: Podcasts You Watch':                      '3300-disc1',
-                'Discussion 2: Peer Critique \u2014 Episode 2':          '3300-disc2',
-                'Discussion 2: Peer Critique \u2014 Episode 1':          '3300-disc2',
-                'Discussion 3: The Sound of Podcasting':                 '3300-disc3',
-                'Discussion 4: Peer Critique \u2014 Episode 3':          '3300-disc4',
-                'Discussion 5: Brand Identity in the Wild':              '3300-disc5',
-                'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
-                'Discussion 7: Episode Structure Analysis':              '3300-disc7',
-                'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
-            };
-            disc = titleMap[ltiData.resourceLinkTitle] || null;
-        }
-
-        // Safety guard: this server only handles 3300 discussions
-        if (disc && disc.startsWith('3340-')) {
-            console.error(`[LTI Launch] BLOCKED: 3340 disc key "${disc}" attempted on 3300 server (link_id=${req.body.ext_d2l_link_id}, title="${ltiData.resourceLinkTitle}")`);
-            disc = null;
-        }
-
-        if (disc) {
-            console.log(`[LTI Launch] Resolved disc=${disc} (title="${ltiData.resourceLinkTitle}", ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}, query.disc=${req.query.disc || 'n/a'})`);
-        } else {
-            console.warn(`[LTI Launch] Could not resolve disc title="${ltiData.resourceLinkTitle}" ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}`);
-        }
-
-        // Persist mapping keyed by resourceLinkId (unique per placed D2L link)
-        if (disc && !isInstructor && ltiData.resourceLinkId && discMappingsCollection) {
-            discMappingsCollection.updateOne(
-                { resourceLinkId: ltiData.resourceLinkId },
-                { $set: { resourceLinkId: ltiData.resourceLinkId, disc, resultSourcedId: ltiData.resultSourcedId, userId: ltiData.userId, updatedAt: new Date().toISOString() } },
-                { upsert: true }
-            ).catch(e => console.error('Failed to auto-save disc mapping:', e));
-        }
-
-        // Fall back to DB mapping (for shared-link courses)
-        if (!disc && !isInstructor && ltiData.resourceLinkId && discMappingsCollection) {
-            const mapping = await discMappingsCollection.findOne({ resourceLinkId: ltiData.resourceLinkId });
-            if (mapping) disc = mapping.disc;
-        }
-
-        const userData = {
-            id: ltiData.userId,
-            name: ltiData.userName,
-            email: ltiData.userEmail,
-            isInstructor,
-            contextId: ltiData.contextId,
-            contextTitle: ltiData.contextTitle,
-            resourceLinkId: ltiData.resourceLinkId,
-            resourceLinkTitle: ltiData.resourceLinkTitle,
-            outcomeServiceUrl: ltiData.outcomeServiceUrl,
-            resultSourcedId: ltiData.resultSourcedId,
-            disc,
-        };
-
-        req.session.regenerate((err) => {
-            if (err) console.error('Session regenerate error:', err);
-            req.session.user = userData;
-            req.session.save((err2) => {
-                if (err2) console.error('Session save error:', err2);
-                const ltiToken = createLtiToken(userData);
-                if (isInstructor) {
-                    res.redirect(`/instructor.html?lti_token=${ltiToken}`);
-                } else if (!disc && ltiData.resultSourcedId) {
-                    res.redirect(`/pick-discussion.html?lti_token=${ltiToken}`);
-                } else {
-                    res.redirect(`/discussion.html?lti_token=${ltiToken}`);
-                }
-            });
+        req.session.save((err) => {
+            if (err) console.error('Session save error:', err);
+            if (isInstructor) {
+                res.redirect('/instructor.html');
+            } else {
+                res.redirect('/discussion.html');
+            }
         });
-      } catch (e) {
-        console.error('[LTI POST] Unhandled error:', e);
-        if (!res.headersSent) res.status(500).send('Internal server error during LTI launch.');
-      }
     });
 });
 
@@ -463,12 +236,6 @@ app.post('/lti/test-launch', (req, res) => {
         ltiData.roles.toLowerCase().includes(role.toLowerCase())
     );
 
-    // Test launches have no D2L title map or disc mapping to resolve against, so derive a
-    // disc from the (optional) disc field or fall back to resourceLinkId. Without this, posts
-    // would save with disc=null and GET /api/posts (strict isolation guard) would never return
-    // them, making submissions appear to vanish on refresh.
-    const disc = req.body.disc || ltiData.resourceLinkId;
-
     req.session.user = {
         id: ltiData.userId,
         name: ltiData.userName,
@@ -477,8 +244,7 @@ app.post('/lti/test-launch', (req, res) => {
         contextId: ltiData.contextId,
         contextTitle: ltiData.contextTitle,
         resourceLinkId: ltiData.resourceLinkId,
-        resourceLinkTitle: ltiData.resourceLinkTitle,
-        disc
+        resourceLinkTitle: ltiData.resourceLinkTitle
     };
 
     req.session.save(() => {
@@ -516,15 +282,10 @@ if (isDev) {
 // ======================
 
 function requireAuth(req, res, next) {
-    if (req.session.user) return next();
-    // Safari ITP fallback: session cookie may have been blocked — check token header
-    const token = req.headers['x-lti-token'];
-    const userData = lookupLtiToken(token);
-    if (userData) {
-        req.session.user = userData; // hydrate session for this request
-        return next();
+    if (!req.session.user) {
+        return res.status(401).json({ error: 'Not authenticated. Please launch from D2L.' });
     }
-    return res.status(401).json({ error: 'Not authenticated. Please launch from D2L.' });
+    next();
 }
 
 function requireInstructor(req, res, next) {
@@ -538,87 +299,15 @@ function requireInstructor(req, res, next) {
 // API: User Info
 // ======================
 
-app.get('/api/user', requireAuth, async (req, res) => {
-    let instructions = null;
-    const discKey = req.session.user.disc;
-
-    // Use hardcoded correct instructions for 3300 (override any incorrect DB entries)
-    if (discKey && discKey.startsWith('3300-disc')) {
-        instructions = CORRECT_3300_INSTRUCTIONS[discKey] || null;
-    }
-
-    // Fallback to DB for other courses or if no hardcoded instructions
-    if (!instructions && discussionLabelsCollection && discKey) {
-        const doc = await discussionLabelsCollection.findOne({ resourceLinkId: discKey });
-        if (doc && doc.instructions) instructions = doc.instructions;
-    }
-
+app.get('/api/user', requireAuth, (req, res) => {
     res.json({
         name: req.session.user.name,
         email: req.session.user.email,
         isInstructor: req.session.user.isInstructor,
         contextId: req.session.user.contextId,
         contextTitle: req.session.user.contextTitle,
-        resourceLinkTitle: req.session.user.resourceLinkTitle,
-        disc: req.session.user.disc || null,
-        instructions
+        resourceLinkTitle: req.session.user.resourceLinkTitle
     });
-});
-
-// Instructor sets active disc via query param (?disc=3340-mod3 on /api/user or explicit POST)
-app.post('/api/instructor/set-disc', requireInstructor, (req, res) => {
-    const { disc } = req.body;
-    req.session.user.disc = disc || null;
-    req.session.save();
-    res.json({ success: true, disc: req.session.user.disc });
-});
-
-// List all distinct disc values that have posts (for instructor dropdown)
-app.get('/api/instructor/disc-list', requireInstructor, async (req, res) => {
-    try {
-        const contextTitle = req.session.user.contextTitle;
-        let discs;
-        // Course-wide dashboard: list distinct disc values across the whole course
-        // (by contextTitle), not just the instructor's single launched link.
-        if (postsCollection) {
-            discs = await postsCollection.distinct('disc', { contextTitle });
-        } else {
-            const all = (global.inMemoryPosts || []).filter(p => p.contextTitle === contextTitle);
-            discs = [...new Set(all.map(p => p.disc).filter(Boolean))];
-        }
-        // Attach labels from discussionLabels
-        let labeled = discs.filter(Boolean).map(d => ({ disc: d, label: d }));
-        if (discussionLabelsCollection) {
-            const docs = await discussionLabelsCollection.find({ resourceLinkId: { $in: discs.filter(Boolean) } }).toArray();
-            const map = Object.fromEntries(docs.map(d => [d.resourceLinkId, d.label]));
-            labeled = labeled.map(d => ({ disc: d.disc, label: map[d.disc] || d.disc }));
-        }
-        res.json(labeled);
-    } catch (e) {
-        res.status(500).json({ error: 'Failed to list discussions' });
-    }
-});
-
-// Student sets their disc mapping on first launch (stored by resultSourcedId)
-app.post('/api/set-disc', requireAuth, async (req, res) => {
-    try {
-        const { disc } = req.body;
-        if (!disc || typeof disc !== 'string') return res.status(400).json({ error: 'disc is required' });
-        const resourceLinkId = req.session.user.resourceLinkId;
-        if (!resourceLinkId) return res.status(400).json({ error: 'No resourceLinkId in session' });
-        if (discMappingsCollection) {
-            await discMappingsCollection.updateOne(
-                { resourceLinkId },
-                { $set: { resourceLinkId, disc, resultSourcedId: req.session.user.resultSourcedId, userId: req.session.user.id, updatedAt: new Date().toISOString() } },
-                { upsert: true }
-            );
-        }
-        req.session.user.disc = disc;
-        req.session.save();
-        res.json({ success: true, disc });
-    } catch (e) {
-        res.status(500).json({ error: 'Failed to save disc' });
-    }
 });
 
 // ======================
@@ -628,27 +317,16 @@ app.post('/api/set-disc', requireAuth, async (req, res) => {
 app.get('/api/posts', requireAuth, async (req, res) => {
     try {
         const resourceLinkId = req.session.user.resourceLinkId;
-        const disc = req.session.user.disc;
-
-        // STRICT ISOLATION: Every discussion must have a disc identifier
-        // If disc is not set, return empty array (student must go through proper LTI launch)
-        if (!disc) {
-            console.log(`[Posts] Rejecting request - no disc in session for user ${req.session.user.id}`);
-            return res.json([]);
-        }
-
-        // Query by course context + disc — resourceLinkId is often shared across topics
-        const query = { contextId: req.session.user.contextId, disc };
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find(query)
+                .find({ resourceLinkId })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextId === req.session.user.contextId && p.disc === disc)
+                .filter(p => p.resourceLinkId === resourceLinkId)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
@@ -724,7 +402,6 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
             contextTitle: req.session.user.contextTitle,
             resourceLinkId: req.session.user.resourceLinkId,
             resourceLinkTitle: req.session.user.resourceLinkTitle,
-            disc: req.session.user.disc || null,
             parentId: parentId || null,
             authorId: req.session.user.id,
             authorName: req.session.user.name,
@@ -767,7 +444,6 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
         const draft = {
             userEmail: req.session.user.email,
             contextId: req.session.user.contextId,
-            resourceLinkId: req.session.user.resourceLinkId,
             text: typeof text === 'string' ? text.substring(0, 50000) : '',
             scratchPad: typeof scratchPad === 'string' ? scratchPad.substring(0, 50000) : '',
             savedAt: new Date().toISOString()
@@ -775,12 +451,12 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
 
         if (draftsCollection) {
             await draftsCollection.updateOne(
-                { userEmail: req.session.user.email, resourceLinkId: req.session.user.resourceLinkId },
+                { userEmail: req.session.user.email, contextId: req.session.user.contextId },
                 { $set: draft },
                 { upsert: true }
             );
         } else {
-            const key = `${req.session.user.email}:${req.session.user.resourceLinkId}`;
+            const key = `${req.session.user.email}:${req.session.user.contextId}`;
             global.inMemoryDrafts[key] = draft;
         }
 
@@ -798,10 +474,10 @@ app.get('/api/load-draft', requireAuth, async (req, res) => {
         if (draftsCollection) {
             draft = await draftsCollection.findOne({
                 userEmail: req.session.user.email,
-                resourceLinkId: req.session.user.resourceLinkId
+                contextId: req.session.user.contextId
             });
         } else {
-            const key = `${req.session.user.email}:${req.session.user.resourceLinkId}`;
+            const key = `${req.session.user.email}:${req.session.user.contextId}`;
             draft = global.inMemoryDrafts[key] || null;
         }
 
@@ -894,35 +570,37 @@ async function runAIDetection(text) {
 
 app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
     try {
-        const resourceLinkId = req.session.user.resourceLinkId;
+        // Group by course (contextTitle) rather than contextId, because this D2L
+        // setup sends a different context_id per discussion topic. contextTitle is
+        // consistent across all discussions in the same course.
         const contextTitle = req.session.user.contextTitle;
-        const disc = req.session.user.disc;
-        // Group by contextTitle (the stable course identifier) so an instructor sees all
-        // discussions within their course. D2L can issue different context_ids for the same
-        // course, so contextId is unreliable for course-wide grouping (see DEVELOPER-NOTES).
-        // If a specific disc is selected, additionally filter by disc value.
-        console.log('[instructor/posts] contextTitle:', contextTitle, 'resourceLinkId:', resourceLinkId, 'disc:', disc);
-        const query = disc ? { contextTitle, disc } : { contextTitle };
         let posts;
 
         if (postsCollection) {
             posts = await postsCollection
-                .find(query)
+                .find({ contextTitle })
                 .sort({ timestamp: -1 })
                 .toArray();
         } else {
             posts = (global.inMemoryPosts || [])
-                .filter(p => p.contextTitle === contextTitle && (!disc || p.disc === disc))
+                .filter(p => p.contextTitle === contextTitle)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
 
-        // Attach instructor-defined label for this discussion.
-        let moduleLabel = p => p.resourceLinkTitle || contextTitle || 'Untitled Discussion';
-        if (discussionLabelsCollection && disc) {
-            const labelDoc = await discussionLabelsCollection.findOne({ resourceLinkId: disc });
-            if (labelDoc) moduleLabel = () => labelDoc.label;
+        // Attach instructor-defined module labels (keyed by resourceLinkId).
+        // D2L sends the same resource_link_title for every discussion, so the
+        // instructor can rename each one; we surface that as moduleLabel.
+        let labelMap = {};
+        if (discussionLabelsCollection) {
+            const labels = await discussionLabelsCollection
+                .find({ resourceLinkId: { $in: [...new Set(posts.map(p => p.resourceLinkId))] } })
+                .toArray();
+            labelMap = Object.fromEntries(labels.map(l => [l.resourceLinkId, l.label]));
         }
-        posts = posts.map(p => ({ ...p, moduleLabel: moduleLabel(p) }));
+        posts = posts.map(p => ({
+            ...p,
+            moduleLabel: labelMap[p.resourceLinkId] || p.resourceLinkTitle || 'Untitled Discussion'
+        }));
 
         res.json(posts);
     } catch (error) {
@@ -934,7 +612,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
 // Set a custom display name for a discussion (module), keyed by resourceLinkId.
 app.post('/api/instructor/discussion-label', requireInstructor, async (req, res) => {
     try {
-        const { resourceLinkId, label, instructions } = req.body;
+        const { resourceLinkId, label } = req.body;
         const contextTitle = req.session.user.contextTitle;
 
         if (!resourceLinkId || typeof label !== 'string' || !label.trim()) {
@@ -951,12 +629,9 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
             return res.status(403).json({ error: 'This discussion does not belong to your course.' });
         }
 
-        const setFields = { resourceLinkId, contextTitle, label: label.trim(), updatedAt: new Date().toISOString() };
-        if (instructions !== undefined) setFields.instructions = instructions;
-
         await discussionLabelsCollection.updateOne(
             { resourceLinkId },
-            { $set: setFields },
+            { $set: { resourceLinkId, contextTitle, label: label.trim(), updatedAt: new Date().toISOString() } },
             { upsert: true }
         );
 
@@ -964,30 +639,6 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
     } catch (error) {
         console.error('Error setting discussion label:', error);
         res.status(500).json({ error: 'Failed to save label' });
-    }
-});
-
-// Pre-populate instructions without requiring an active student post (setup use only).
-app.post('/api/instructor/set-instructions', requireInstructor, async (req, res) => {
-    try {
-        const { resourceLinkId, instructions, label } = req.body;
-        if (!resourceLinkId || !instructions) {
-            return res.status(400).json({ error: 'resourceLinkId and instructions are required' });
-        }
-        if (!discussionLabelsCollection) {
-            return res.status(503).json({ error: 'Database unavailable' });
-        }
-        const setFields = { resourceLinkId, instructions, updatedAt: new Date().toISOString() };
-        if (label) setFields.label = label;
-        await discussionLabelsCollection.updateOne(
-            { resourceLinkId },
-            { $set: setFields },
-            { upsert: true }
-        );
-        res.json({ success: true, resourceLinkId });
-    } catch (error) {
-        console.error('Error setting instructions:', error);
-        res.status(500).json({ error: 'Failed to save instructions' });
     }
 });
 
@@ -999,31 +650,16 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
     try {
         const { authorId, score, feedback } = req.body;
         const resourceLinkId = req.session.user.resourceLinkId;
-        const disc = req.session.user.disc;
 
         if (typeof score !== 'number' || score < 0 || score > 100) {
             return res.status(400).json({ error: 'Score must be between 0 and 100' });
         }
 
-        // Find the student's outcomes record (resultSourcedId + outcomeServiceUrl) for THIS disc.
-        // discMappings is keyed by resourceLinkId (unique per placed link), so resolve the set of
-        // links that belong to this disc, then look up the student's per-link outcome record.
-        // Using the instructor's resourceLinkId would send grades to the wrong gradebook item when
-        // multiple discussion links exist in the course.
+        // Find the student's outcomes data
         let outcomesData;
-        if (outcomesCollection && discMappingsCollection && disc) {
-            const discLinkIds = await discMappingsCollection.distinct('resourceLinkId', { disc });
-            if (discLinkIds.length) {
-                outcomesData = await outcomesCollection.findOne({
-                    userId: authorId,
-                    resourceLinkId: { $in: discLinkIds }
-                });
-            }
-        }
-        // Fallback: find by userId + the instructor's resourceLinkId (works if only one discussion)
-        if (!outcomesData && outcomesCollection) {
+        if (outcomesCollection) {
             outcomesData = await outcomesCollection.findOne({ userId: authorId, resourceLinkId });
-        } else if (!outcomesData) {
+        } else {
             outcomesData = (global.inMemoryOutcomes || {})[`${authorId}:${resourceLinkId}`];
         }
 
@@ -1043,20 +679,15 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
             return res.status(500).json({ error: 'Failed to send grade to D2L. Please try again.' });
         }
 
-        // Store grade locally on the student's posts for this discussion. Match by disc when
-        // known (the instructor's resourceLinkId may differ from the student's link), otherwise
-        // fall back to the student's own resourceLinkId from their outcomes record.
+        // Store grade locally
         if (postsCollection) {
-            const gradeQuery = disc
-                ? { authorId, disc }
-                : { authorId, resourceLinkId: outcomesData.resourceLinkId || resourceLinkId };
             await postsCollection.updateMany(
-                gradeQuery,
+                { authorId, resourceLinkId },
                 { $set: { grade: score, gradeFeedback: feedback || '', gradedAt: new Date().toISOString(), gradedBy: req.session.user.name } }
             );
         }
 
-        console.log(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${disc || resourceLinkId}`);
+        console.log(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${resourceLinkId}`);
         res.json({ success: true, message: `Grade of ${score}/100 sent to D2L gradebook` });
     } catch (error) {
         console.error('Grade submission error:', error);
@@ -1164,7 +795,7 @@ function sendLTIGrade(serviceUrl, sourcedId, score) {
 // STATIC FILES
 // ======================
 
-const allowedFiles = ['discussion.html', 'instructor.html', 'pick-discussion.html', 'styles.css', 'script.js', 'discussion.js', 'test-launch.html'];
+const allowedFiles = ['discussion.html', 'instructor.html', 'styles.css', 'script.js', 'discussion.js', 'test-launch.html'];
 
 app.get('/:file', (req, res, next) => {
     const file = req.params.file;
