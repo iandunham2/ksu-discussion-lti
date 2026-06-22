@@ -209,6 +209,7 @@ app.all('/lti/launch', async (req, res, next) => {
 });
 
 app.post('/lti/launch', (req, res) => {
+    console.log('>>>>>> LTI POST HIT <<<<<< body keys:', Object.keys(req.body || {}).join(','));
     const provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
 
     console.log('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
