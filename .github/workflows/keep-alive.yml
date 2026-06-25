@@ -10,11 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping ksu-discussion-lti (3300)
+        continue-on-error: true
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ksu-discussion-lti.onrender.com/health)
-          echo "3300 server: $STATUS"
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 60 https://ksu-discussion-lti.onrender.com/health)
+            echo "3300 server attempt $i: $STATUS"
+            if [ "$STATUS" = "200" ]; then break; fi
+            sleep 5
+          done
 
       - name: Ping ksu-discussion-lti-3340 (3340)
+        continue-on-error: true
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://ksu-discussion-lti-3340.onrender.com/health)
-          echo "3340 server: $STATUS"
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 60 https://ksu-discussion-lti-3340.onrender.com/health)
+            echo "3340 server attempt $i: $STATUS"
+            if [ "$STATUS" = "200" ]; then break; fi
+            sleep 5
+          done
