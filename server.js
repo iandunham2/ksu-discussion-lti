@@ -373,6 +373,9 @@ app.post('/lti/launch', (req, res) => {
             '62350211': '3300-disc0', '62350212': '3300-disc1', '62350213': '3300-disc2',
             '62350214': '3300-disc3', '62350215': '3300-disc4', '62350216': '3300-disc5',
             '62350217': '3300-disc6', '62350218': '3300-disc7', '62350219': '3300-disc8',
+            '62351528': '3300-disc0', '62351529': '3300-disc1', '62351530': '3300-disc2',
+            '62351531': '3300-disc3', '62351532': '3300-disc4', '62351533': '3300-disc5',
+            '62351534': '3300-disc6', '62351535': '3300-disc7',
         };
         if (!disc && req.body.ext_d2l_link_id) {
             disc = TOPIC_ID_TO_DISC[String(req.body.ext_d2l_link_id)] || null;
@@ -1214,16 +1217,15 @@ app.get('/', (req, res) => {
 // START
 // ======================
 
-async function start() {
-    await connectDatabase();
-    app.listen(PORT, () => {
-        console.log(`✅ KSU Discussion LTI running on port ${PORT}`);
-        console.log(`   Environment: ${isDev ? 'development' : 'production'}`);
-        if (isDev) {
-            console.log(`   Dev login: http://localhost:${PORT}/dev/login?role=student`);
-            console.log(`   Instructor: http://localhost:${PORT}/dev/login?role=instructor`);
-        }
-    });
-}
+app.listen(PORT, () => {
+    console.log(`✅ KSU Discussion LTI running on port ${PORT}`);
+    console.log(`   Environment: ${isDev ? 'development' : 'production'}`);
+    if (isDev) {
+        console.log(`   Dev login: http://localhost:${PORT}/dev/login?role=student`);
+        console.log(`   Instructor: http://localhost:${PORT}/dev/login?role=instructor`);
+    }
+});
 
-start();
+// Connect to MongoDB in the background — don't block server startup.
+// Render's health check will fail (502) if the port isn't listening quickly enough.
+connectDatabase().catch(err => console.error('Database connection error:', err));
