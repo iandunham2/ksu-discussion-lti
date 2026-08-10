@@ -349,7 +349,19 @@ fetch('/api/session-check').then(r=>r.json()).then(d=>{
 
 app.post('/lti/launch', (req, res) => {
     log.info('>>>>>> LTI POST HIT <<<<<< body keys:', Object.keys(req.body || {}).join(','));
-    const provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
+
+    if (!req.body || typeof req.body !== 'object') {
+        log.error('[LTI POST] Missing or non-object body');
+        return res.status(400).send('LTI launch body missing or invalid.');
+    }
+
+    let provider;
+    try {
+        provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
+    } catch (e) {
+        log.error('[LTI POST] Provider init failed:', e);
+        return res.status(500).send('Internal server error during LTI launch.');
+    }
 
     if (isDev) {
         log.info('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
@@ -359,6 +371,8 @@ app.post('/lti/launch', (req, res) => {
         log.info('[LTI Launch] received for user_id=%s, context_title=%s, resource_link_title=%s',
             req.body.user_id, req.body.context_title, req.body.resource_link_title);
     }
+
+    try {
     provider.valid_request(req, async (err, isValid) => {
       try {
         if (!isValid && !isDev) {
@@ -375,7 +389,9 @@ app.post('/lti/launch', (req, res) => {
             userId: req.body.user_id,
             userName: req.body.lis_person_name_full || req.body.user_id,
             userEmail: req.body.lis_person_contact_email_primary || `${req.body.user_id}@kennesaw.edu`,
-            roles: req.body.roles || '',
+            roles: Array.isArray(req.body.roles)
+                ? req.body.roles.join(',')
+                : (req.body.roles || ''),
             contextId: req.body.context_id || 'default',
             contextTitle: req.body.context_title || 'Discussion',
             resourceLinkId: req.body.ext_d2l_link_id || req.body.resource_link_id || 'default',
@@ -488,6 +504,10 @@ app.post('/lti/launch', (req, res) => {
         if (!res.headersSent) res.status(500).send('Internal server error during LTI launch.');
       }
     });
+    } catch (e) {
+        log.error('[LTI POST] Synchronous error from valid_request:', e);
+        if (!res.headersSent) res.status(500).send('Internal server error during LTI launch.');
+    }
 });
 
 // Test launch route (bypasses OAuth signature for testing) — dev only.
@@ -500,11 +520,12 @@ app.post('/lti/test-launch', (req, res) => {
         return res.status(401).send('Invalid test secret.');
     }
 
+    const roles = Array.isArray(req.body.roles) ? req.body.roles.join(',') : (req.body.roles || 'Student');
     const ltiData = {
         userId: req.body.user_id || 'test-user',
         userName: req.body.lis_person_name_full || 'Test User',
         userEmail: req.body.lis_person_contact_email_primary || 'test@kennesaw.edu',
-        roles: req.body.roles || 'Student',
+        roles,
         contextId: req.body.context_id || 'test-course',
         contextTitle: req.body.context_title || 'Test Course',
         resourceLinkId: req.body.resource_link_id || 'test-discussion',
@@ -1272,6 +1293,16 @@ app.get('/', (req, res) => {
         `);
     }
     res.status(403).send('Please launch this tool from D2L.');
+});
+
+// Global error handler to prevent default Express 500 HTML pages from leaking to users
+app.use((err, req, res, next) => {
+    log.error('[Express] Unhandled error:', err);
+    if (!res.headersSent) {
+        res.status(500).send('Internal server error during LTI launch.');
+    } else {
+        next(err);
+    }
 });
 
 // ======================
