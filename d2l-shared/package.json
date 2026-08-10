@@ -1,0 +1,33 @@
+{
+  "name": "d2l-shared",
+  "version": "0.2.1",
+  "description": "Shared D2L/Brightspace client, authentication, and utility code.",
+  "type": "commonjs",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "require": "./build/index.js",
+      "default": "./build/index.js"
+    }
+  },
+  "files": [
+    "build",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"No tests\"",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
