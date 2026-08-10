@@ -1,37 +1,39 @@
-# AI Detection Word Processor
+# AI-Monitored Discussion Tool
 
-A sophisticated academic integrity tool that combines GPTZero AI content detection with real-time typing pattern analysis to identify potentially AI-generated student submissions.
+An LTI 1.1 discussion board for D2L Brightspace. Student posts are analyzed by the **Sapling AI detector** and monitored with real-time typing analytics to help instructors spot potentially AI-generated submissions.
 
 ## Features
 
 ### For Students
-- ✍️ Clean, distraction-free writing interface
-- 🔒 Paste protection to ensure original typing
-- 🔐 Shibboleth SSO authentication (KSU login)
-- ✅ Simple submission process
+- ✍️ Clean, distraction-free discussion composer
+- 🔒 Paste protection in the main editor (typing must be original)
+- 📋 Optional "Paste Field" per post for links, images, and pasted references
+- 🔐 LTI 1.1 launch authentication from D2L
+- ✅ Write new posts and reply to classmates
 
 ### For Instructors
-- 📊 Comprehensive dashboard with all submissions
+- 📊 Dashboard with all posts in the course
 - 🎯 Dual-layer detection:
-  - **GPTZero AI Detection**: Content-based analysis
-  - **Typing Pattern Analysis**: Behavioral analysis
-- 🚨 Risk scoring (High/Medium/Low)
-- 📈 Detailed metrics:
+  - **Sapling AI Detection**: content-based AI probability
+  - **Typing Pattern Analysis**: behavioral keystroke analytics
+- 🚨 Risk scoring (High / Medium / Low)
+- 📈 Detailed metrics per post:
   - AI probability percentage
   - Typing suspicion score
-  - Average typing delays
+  - Correction ratio
   - Paste event detection
-  - Complete keystroke logs
-- 🔍 Expandable detailed views
-- ⚡ Auto-refresh every 10 seconds
+  - Suspicious refocuses and WPM spikes
+- 🏷️ Per-discussion labels (instructor can rename each module)
+- 🔍 Expandable post detail views
+- ⚡ Dashboard auto-refreshes every 15 seconds
 
 ## Technology Stack
 
 - **Frontend**: Vanilla JavaScript, HTML5, CSS3
 - **Backend**: Node.js with Express
 - **Database**: MongoDB
-- **Authentication**: Shibboleth SSO
-- **AI Detection**: GPTZero API
+- **LTI Launch**: LTI 1.1 (OAuth 1.0a signature validation via `ims-lti`)
+- **AI Detection**: Sapling API
 - **Session Management**: Express-session with MongoDB store
 
 ## Quick Start (Development)
@@ -40,227 +42,209 @@ A sophisticated academic integrity tool that combines GPTZero AI content detecti
 # Install dependencies
 npm install
 
-# Start development server (no Shibboleth)
+# Configure environment
+cp .env.example .env
+# Edit .env with your LTI key/secret, Sapling key, MongoDB URI, etc.
+
+# Start the development server
 node server.js
 
-# Access application
-# Student interface: http://localhost:3000
-# Instructor dashboard: http://localhost:3000/instructor.html
+# Access
+curl http://localhost:3000/health
 ```
 
 ## Production Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions for Kennesaw State University infrastructure.
+For admin/operations details, see [`DEVELOPER-NOTES.md`](DEVELOPER-NOTES.md).
 
 ### Quick Production Start
 
 ```bash
 # 1. Configure environment
 cp .env.example .env
-nano .env  # Edit with your settings
+nano .env
 
 # 2. Install dependencies
 npm install --production
 
-# 3. Start with PM2
-pm2 start server-production.js --name ai-detection
-pm2 save
+# 3. Start the server
+node server.js
 ```
+
+### Render (free tier)
+
+Use the included `render.yaml` blueprint. Set these in the Render dashboard:
+
+- `LTI_CONSUMER_KEY`
+- `LTI_CONSUMER_SECRET`
+- `SAPLING_API_KEY`
+- `MONGODB_URI`
+- `SESSION_SECRET` (let Render auto-generate)
 
 ## Configuration
 
 ### Environment Variables
-
-Key configuration options in `.env`:
 
 ```bash
 # Server
 PORT=3000
 NODE_ENV=production
 
-# GPTZero API
-GPTZERO_API_KEY=your_api_key_here
+# LTI 1.1 credentials (must match the values in D2L)
+LTI_CONSUMER_KEY=your_key
+LTI_CONSUMER_SECRET=your_secret
+
+# Allowed Brightspace frame ancestors
+LTI_FRAME_ANCESTORS=https://your-school.brightspace.com,https://*.view.usg.edu
+
+# Sapling AI detector (free account at https://sapling.ai/ai-content-detector)
+SAPLING_API_KEY=your-sapling-api-key
 
 # Database
-MONGODB_URI=mongodb://localhost:27017/ai-detection
+MONGODB_URI=mongodb://localhost:27017/ksu-discussion
 
-# Shibboleth
-SHIBBOLETH_ENABLED=true
-
-# Instructor Access
-INSTRUCTOR_EMAILS=prof@kennesaw.edu,ta@kennesaw.edu
+# Session cookie secret
+SESSION_SECRET=a-long-random-string
 ```
 
 See `.env.example` for all available options.
 
+### Discussion mapping (`discussions.json`)
+
+Discussion topic IDs, link titles, instruction HTML, and allowed options are loaded from `discussions.json` at startup. Edit this file to add or change course/topic mappings without touching code.
+
+```json
+{
+  "topicIdToDisc": {
+    "62324565": "3300-disc0"
+  },
+  "titleToDisc": {
+    "Module 1 Discussion": "3340-mod1"
+  },
+  "instructions": {
+    "3300-disc0": "<h3>Discussion 0: Introduce Yourself</h3><p>...</p>"
+  },
+  "blockedDiscPrefixes": ["3340-"],
+  "discOptions": [
+    { "value": "3300-disc0", "label": "Discussion 0" },
+    { "value": "3300-disc1", "label": "Discussion 1" }
+  ]
+}
+```
+
+`discussion-config.js` exposes `resolveDisc`, `discFromTitle`, `getInstructions`, and `getDiscOptions`, so the server can be configured for any course without code changes.
+
+### Content Security Policy
+
+The `frame-ancestors` CSP directive is driven by the `LTI_FRAME_ANCESTORS` environment variable (comma-separated list of Brightspace hostnames). If not set, only the tool's own origin can frame it.
+
+```bash
+LTI_FRAME_ANCESTORS=https://kennesaw.view.usg.edu,https://*.view.usg.edu
+```
+
 ## How It Works
 
 ### Student Workflow
-1. Student logs in via KSU Shibboleth SSO
-2. Student types assignment in the word processor
-3. Every keystroke is timestamped (invisible to student)
-4. Student clicks "Submit Work"
-5. Text is analyzed by GPTZero API
-6. Typing patterns are analyzed for anomalies
-7. All data is stored in database
-8. Student receives confirmation
+
+1. Student clicks the LTI link in a D2L module.
+2. D2L launches the student into the tool via an LTI 1.1 POST, passing name, email, role, and course context.
+3. Student writes a post in the composer; every keystroke is timestamped.
+4. On submit, the text is sent to the Sapling AI detector (if the post is long enough).
+5. Keystroke timing, paste attempts, focus/refocus behavior, and the Sapling score are combined into a composite risk score.
+6. The post is stored in MongoDB and the student sees the updated thread.
 
 ### Instructor Workflow
-1. Instructor logs in via KSU Shibboleth SSO
-2. Instructor accesses dashboard at `/instructor.html`
-3. Dashboard shows all submissions with risk scores
-4. Instructor can expand any submission to see:
-   - Full text
-   - Complete keystroke log with timestamps
-   - Typing analytics (delays, bursts, patterns)
-   - GPTZero AI detection results
-5. Dashboard auto-refreshes every 10 seconds
 
-### Detection Methodology
+1. Instructor clicks the same LTI link.
+2. The instructor dashboard loads all posts for that course context.
+3. Select a module, thread, or risk level to filter.
+4. Expand any post to see full text, AI probability, and typing analytics.
+5. Click ✏️ Rename to give a discussion link a meaningful display label.
 
-**AI Content Detection (GPTZero)**:
-- Analyzes text for AI-generated patterns
-- Returns probability score (0-100%)
-- Checks perplexity and burstiness
+### Risk Scoring
 
-**Typing Pattern Analysis**:
-- Tracks inter-keystroke delays
-- Detects paste events
-- Identifies burst typing (rapid text entry)
-- Calculates consistency metrics
-- Flags suspicious patterns
-
-**Combined Risk Scoring**:
-- **High Risk**: Both AI detection AND typing patterns indicate AI use
-- **Medium Risk**: One indicator suggests AI use
-- **Low Risk**: Both indicators show human authorship
+- **High Risk**: Both Sapling AI detection and typing patterns indicate AI use.
+- **Medium Risk**: One indicator is suspicious.
+- **Low Risk**: Both indicators suggest human authorship.
 
 ## Security Features
 
-- 🔐 Shibboleth SSO authentication
+- 🔐 LTI 1.1 OAuth-signature validation
 - 🔒 HTTPS/SSL required in production
 - 🛡️ Helmet.js security headers
-- 🔑 Secure session management
-- 👥 Role-based access control (Student/Instructor)
-- 📝 Comprehensive logging
+- 🌐 Configurable frame ancestors and CORS
+- 🔑 Secure session management with MongoDB-backed stores
+- 👥 Role-based access control (Student/Instructor from LTI roles)
+- 📝 Redacted, timestamped logging via `d2l-shared`
 - 🗄️ MongoDB with authentication
 
 ## API Endpoints
 
 ### Student Endpoints
-- `GET /` - Student writing interface (authenticated)
-- `POST /api/submit-work` - Submit assignment (authenticated)
-- `POST /api/check-ai` - GPTZero API proxy (authenticated)
+
+- `GET /discussion?disc=...` — Student discussion view (requires LTI session)
+- `GET /api/posts` — Get posts for the current module
+- `POST /api/posts` — Submit a new post or reply
+- `POST /api/save-draft` — Save a draft
+- `GET /api/load-draft` — Load the current user's draft
 
 ### Instructor Endpoints
-- `GET /instructor.html` - Instructor dashboard (instructor only)
-- `GET /api/submissions` - Get all submissions (instructor only)
 
-### Authentication Endpoints
-- `GET /api/user` - Get current user info
-- `GET /logout` - Logout and clear session
+- `GET /instructor.html` — Instructor dashboard (instructor only)
+- `GET /api/instructor/posts` — Get posts for the course (instructor only)
+- `POST /api/instructor/grade` — Send a grade back to D2L (instructor only)
+- `POST /api/instructor/discussion-label` — Rename a discussion link (instructor only)
+- `POST /api/instructor/discussion-instructions` — Update instructions for a discussion (instructor only)
 
-## Database Schema
+### Other Endpoints
 
-### Submissions Collection
-
-```javascript
-{
-  _id: ObjectId,
-  studentEmail: "jdoe12@students.kennesaw.edu",
-  studentDisplayName: "John Doe",
-  studentName: "John Doe",  // From input field
-  text: "The assignment text...",
-  keystrokeLog: [
-    { key: "T", timestamp: 1713105600000 },
-    { key: "h", timestamp: 1713105600150 },
-    ...
-  ],
-  aiResults: {
-    documents: [{
-      completely_generated_prob: 0.05,
-      average_generated_prob: 0.03,
-      ...
-    }]
-  },
-  typingAnalytics: {
-    avgDelay: 521,
-    suspicionScore: 12,
-    pasteCount: 0,
-    burstCount: 0,
-    ...
-  },
-  timestamp: "2026-04-14T14:51:00.000Z",
-  courseId: "CS-1301-001",
-  assignmentId: "essay-1",
-  sessionId: "abc123...",
-  sessionStartTime: "2026-04-14T14:45:00.000Z"
-}
-```
+- `GET /health` — Render health check
+- `GET /` — Dev mode landing page
+- `POST /lti/launch` — LTI 1.1 launch handler
 
 ## Monitoring
 
-### View Logs
-
 ```bash
-# PM2 logs
-pm2 logs ai-detection
+# View logs (if using PM2)
+pm2 logs ksu-discussion-lti
 
-# Follow logs in real-time
-pm2 logs ai-detection --lines 100 -f
-```
-
-### Monitor Performance
-
-```bash
-# PM2 monitoring dashboard
-pm2 monit
-
-# Application status
-pm2 status
+# Or follow Node stdout/stderr directly
+node server.js | tee -a app.log
 ```
 
 ## Troubleshooting
 
+See [`INSTRUCTOR-GUIDE.md`](INSTRUCTOR-GUIDE.md) for instructor-facing issues and setup steps.
+
 ### Common Issues
 
-**Students can't submit**:
-- Check Shibboleth authentication
-- Verify MongoDB connection
-- Check GPTZero API key validity
+**Students see "LTI launch validation failed"**
+- Verify that the Consumer Key and Consumer Secret in D2L match the app environment exactly.
+- Confirm the LTI link URL is `https://<your-host>/lti/launch`.
 
-**Instructor dashboard empty**:
-- Verify instructor email in INSTRUCTOR_EMAILS
-- Check MongoDB for submissions: `db.submissions.find()`
-- Check browser console for errors
+**Students can see other modules' posts**
+- Verify each module has its own LTI link (each gets a unique `resource_link_id` in D2L).
 
-**API errors**:
-- Verify GPTZero API key
-- Check API rate limits
-- Review server logs
+**Instructor dashboard is empty**
+- Confirm the D2L launch sends the instructor role.
+- Check that `contextTitle` from the launch matches the course.
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed troubleshooting.
+**AI detection not running**
+- Verify `SAPLING_API_KEY` is set.
+- Posts shorter than ~50 characters are not sent to Sapling.
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License — See the LICENSE file for details.
 
 ## Support
 
 For technical support or questions:
 - **KSU IT Issues**: Contact KSU IT Help Desk
 - **Application Issues**: [Your contact information]
-- **GPTZero API**: support@gptzero.me
-
-## Acknowledgments
-
-- GPTZero for AI detection API
-- Kennesaw State University IT Department
-- Shibboleth Consortium
+- **Sapling API**: https://sapling.ai
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: April 14, 2026  
-**Maintained by**: [Your Name/Department]
-# Deployed Thu Jun 18 15:29:10 CDT 2026
+**Version**: 2.3.9  
+**Last Updated**: August 5, 2026  

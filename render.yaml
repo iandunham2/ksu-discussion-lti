@@ -14,7 +14,7 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
-      - key: GPTZERO_API_KEY
+      - key: SAPLING_API_KEY
         sync: false
       - key: MONGODB_URI
         sync: false  # paste your MongoDB Atlas connection string

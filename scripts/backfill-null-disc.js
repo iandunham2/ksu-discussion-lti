@@ -17,6 +17,8 @@
 
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
+const { getLogger } = require('d2l-shared');
+const log = getLogger('backfill-null-disc');
 
 const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
 const apply = process.argv.includes('--apply');
@@ -35,11 +37,11 @@ async function main() {
         $or: [{ resourceLinkId: null }, { resourceLinkId: { $exists: false } }]
     });
 
-    console.log(`Orphaned posts (disc null/missing): ${total}`);
-    console.log(`  ...of which lack resourceLinkId (cannot backfill): ${unrecoverable}`);
+    log.info(`Orphaned posts (disc null/missing): ${total}`);
+    log.info(`  ...of which lack resourceLinkId (cannot backfill): ${unrecoverable}`);
 
     if (!apply) {
-        console.log('\nDry run. Re-run with --apply to set disc = resourceLinkId for recoverable posts.');
+        log.info('\nDry run. Re-run with --apply to set disc = resourceLinkId for recoverable posts.');
         await client.close();
         return;
     }
@@ -51,8 +53,8 @@ async function main() {
     const result = await posts.updateMany(recoverableFilter, [
         { $set: { disc: '$resourceLinkId' } }
     ]);
-    console.log(`\nUpdated ${result.modifiedCount} posts (disc <- resourceLinkId).`);
+    log.info(`\nUpdated ${result.modifiedCount} posts (disc <- resourceLinkId).`);
     await client.close();
 }
 
-main().catch(err => { console.error('Migration failed:', err); process.exit(1); });
+main().catch(err => { log.error('Migration failed:', err); process.exit(1); });

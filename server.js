@@ -1,6 +1,9 @@
 'use strict';
 
 require('dotenv').config();
+const sanitizeHtml = require('sanitize-html');
+const { getLogger } = require('d2l-shared');
+const log = getLogger('lti-server');
 const express = require('express');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
@@ -14,29 +17,43 @@ const path = require('path');
 const { MongoClient, ObjectId } = require('mongodb');
 const lti = require('ims-lti');
 const {
-    CORRECT_3300_INSTRUCTIONS,
     resolveDisc,
     discFromTitle,
+    getInstructions,
+    getDiscOptions,
 } = require('./discussion-config.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = process.env.NODE_ENV === 'development';
 
 // ======================
 // CONFIGURATION
 // ======================
 
+function requireEnvVar(name) {
+    if (!process.env[name] || !process.env[name].trim()) {
+        throw new Error(`Missing required environment variable: ${name}. Set it in your environment or .env file.`);
+    }
+    return process.env[name];
+}
+
+function parseEnvList(name, defaults = []) {
+    const raw = process.env[name];
+    if (!raw) return defaults;
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
 const config = {
     lti: {
-        consumerKey: process.env.LTI_CONSUMER_KEY || 'ksu-discussion-tool',
-        consumerSecret: process.env.LTI_CONSUMER_SECRET || 'dev-secret-change-in-production'
+        consumerKey: requireEnvVar('LTI_CONSUMER_KEY'),
+        consumerSecret: requireEnvVar('LTI_CONSUMER_SECRET')
     },
     mongodb: {
-        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017'
+        uri: requireEnvVar('MONGODB_URI')
     },
     session: {
-        secret: process.env.SESSION_SECRET || 'dev-session-secret-change-in-production'
+        secret: requireEnvVar('SESSION_SECRET')
     },
     sapling: {
         apiKey: process.env.SAPLING_API_KEY || ''
@@ -45,7 +62,27 @@ const config = {
 };
 
 if (isDev) {
-    console.warn('⚠️  Running in DEV mode — LTI signature validation relaxed');
+    log.warn('⚠️  Running in DEV mode — LTI signature validation relaxed');
+}
+
+// Sanitize the optional "pasted" HTML field. Allows common formatting,
+// links, and externally-hosted images while stripping scripts/event handlers.
+function sanitizePastedHtml(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    return sanitizeHtml(raw, {
+        allowedTags: [
+            'p', 'div', 'br', 'span', 'img', 'a', 'strong', 'em', 'b', 'i',
+            'u', 's', 'strike', 'sub', 'sup', 'ul', 'ol', 'li',
+            'h1', 'h2', 'h3', 'h4', 'blockquote', 'pre', 'code'
+        ],
+        allowedAttributes: {
+            a: ['href', 'target', 'rel', 'title'],
+            img: ['src', 'alt', 'title', 'width', 'height', 'loading']
+        },
+        allowedSchemes: ['http', 'https', 'mailto'],
+        allowedSchemesAppliedToAttributes: ['href', 'src'],
+        enforceHtmlBoundary: true
+    });
 }
 
 // ======================
@@ -77,9 +114,9 @@ async function connectDatabase() {
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
         await discMappingsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
 
-        console.log('✅ MongoDB connected');
+        log.info('✅ MongoDB connected');
     } catch (error) {
-        console.warn('⚠️  MongoDB connection failed, using in-memory storage:', error.message);
+        log.warn('⚠️  MongoDB connection failed, using in-memory storage:', error.message);
         global.inMemoryPosts = [];
         global.inMemoryDrafts = {};
     }
@@ -92,15 +129,42 @@ async function connectDatabase() {
 // Trust Render/Heroku reverse proxy for secure cookies
 app.set('trust proxy', 1);
 
+const frameAncestors = ["'self'", ...parseEnvList('LTI_FRAME_ANCESTORS')];
+const allowedCorsOrigins = parseEnvList('CORS_ORIGIN');
+
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (isDev) return callback(null, true);
+        if (!origin) return callback(null, true); // same-origin requests have no Origin header
+        if (allowedCorsOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error(`CORS origin not allowed: ${origin}`), false);
+    },
+    credentials: true
+};
+
 app.use(helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            frameAncestors,
+            connectSrc: ["'self'"]
+        }
+    },
     frameguard: false // LTI launches in an iframe
 }));
 app.use(compression());
-app.use(morgan('short'));
-app.use(cors());
+
+// Redact sensitive query parameters before morgan logs the request URL.
+morgan.token('redacted-url', (req) => {
+    const url = req.originalUrl || req.url || '';
+    return url.replace(/([?&](?:lti_token|token|secret|password)=)[^&]+/gi, '$1...REDACTED');
+});
+app.use(morgan(':method :redacted-url :status :res[content-length] - :response-time ms'));
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 const sessionConfig = {
     secret: config.session.secret,
@@ -160,16 +224,6 @@ const apiLimiter = rateLimit({
     message: { error: 'Too many requests' }
 });
 
-// Temporary debug: show everything the server receives
-app.get('/debug/cookies', (req, res) => {
-    const raw = req.headers.cookie || '(none)';
-    const names = raw === '(none)' ? [] : raw.split('; ').map(c => c.split('=')[0]);
-    const d2lPresent = names.filter(n => n.startsWith('d2l'));
-    const headers = Object.entries(req.headers).map(([k,v]) => `${k}: ${v}`).join('\n');
-    const query = JSON.stringify(req.query, null, 2);
-    res.send(`<pre>Query params:\n${query}\n\nd2l cookies: ${d2lPresent.join(', ') || '(none)'}\n\nAll cookie names: ${names.join(', ')}\n\nAll headers:\n${headers}</pre>`);
-});
-
 // ======================
 // LTI 1.1 LAUNCH
 // ======================
@@ -177,20 +231,20 @@ app.get('/debug/cookies', (req, res) => {
 // Handle both GET (direct link) and POST (LTI launch) requests
 app.all('/lti/launch', async (req, res, next) => {
     try {
-    console.log(`[LTI Launch] ${req.method} ${req.originalUrl}`);
-    console.log(`  Query: ${JSON.stringify(req.query)}`);
-    console.log(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
+    log.info(`[LTI Launch] ${req.method} ${req.originalUrl}`);
+    log.info(`  Query: ${JSON.stringify(req.query)}`);
+    log.info(`  Body: ${req.method === 'POST' ? 'present' : 'none'}`);
 
     // GET requests: D2L opens plain-link topics (ActivityType=2) via GET in an iframe.
     // Our connect.sid session cookie IS forwarded cross-site (SameSite=None in prod).
     // If the user has an existing session from a prior LTI POST, serve them directly.
     if (req.method === 'GET') {
         const disc = req.query.disc || null;
-        console.log(`[GET Launch] disc=${disc} sessionUserId=${req.session.userId || 'none'}`);
+        log.info(`[GET Launch] disc=${disc} sessionUserId=${req.session.userId || 'none'}`);
 
         if (disc && req.session.userId) {
             // Existing authenticated session — update disc and serve discussion
-            console.log(`[GET Launch] Reusing session for user=${req.session.userId}`);
+            log.info(`[GET Launch] Reusing session for user=${req.session.userId}`);
             req.session.disc = disc;
             return res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`);
         }
@@ -218,13 +272,13 @@ app.all('/lti/launch', async (req, res, next) => {
                         req.session.isInstructor = false;
                         req.session.contextId = disc.startsWith('3340') ? '3991603' : '3991591';
                         req.session.authMethod = 'D2L-cookie';
-                        console.log(`[GET Launch] Authenticated via whoami: ${userName} (${userId})`);
+                        log.info(`[GET Launch] Authenticated via whoami: ${userName} (${userId})`);
                         return new Promise(resolve => req.session.save(() => {
                             resolve(res.redirect(`/discussion?disc=${encodeURIComponent(disc)}`));
                         }));
                     }
                 } catch (e) {
-                    console.warn('[GET Launch] whoami failed:', e.message);
+                    log.warn('[GET Launch] whoami failed:', e.message);
                 }
             }
             // No D2L cookies or whoami failed — show helpful fallback page
@@ -276,7 +330,7 @@ fetch('/api/session-check').then(r=>r.json()).then(d=>{
         return next();
     }
     } catch (err) {
-        console.error('[LTI Launch] Unhandled error:', err);
+        log.error('[LTI Launch] Unhandled error:', err);
         if (!res.headersSent) return next(err);
         return;
     }
@@ -294,21 +348,26 @@ fetch('/api/session-check').then(r=>r.json()).then(d=>{
 });
 
 app.post('/lti/launch', (req, res) => {
-    console.log('>>>>>> LTI POST HIT <<<<<< body keys:', Object.keys(req.body || {}).join(','));
+    log.info('>>>>>> LTI POST HIT <<<<<< body keys:', Object.keys(req.body || {}).join(','));
     const provider = new lti.Provider(config.lti.consumerKey, config.lti.consumerSecret);
 
-    console.log('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
-        Object.entries(req.body).filter(([k]) => !k.startsWith('oauth_signature'))
-    ), null, 2));
+    if (isDev) {
+        log.info('LTI LAUNCH PARAMS:', JSON.stringify(Object.fromEntries(
+            Object.entries(req.body).filter(([k]) => !k.startsWith('oauth_signature'))
+        ), null, 2));
+    } else {
+        log.info('[LTI Launch] received for user_id=%s, context_title=%s, resource_link_title=%s',
+            req.body.user_id, req.body.context_title, req.body.resource_link_title);
+    }
     provider.valid_request(req, async (err, isValid) => {
       try {
         if (!isValid && !isDev) {
-            console.error('LTI validation failed:', err);
+            log.error('LTI validation failed:', err);
             return res.status(401).send('LTI launch validation failed. Please launch from D2L.');
         }
 
         if (!isValid && isDev) {
-            console.warn('⚠️  LTI validation failed in dev mode — proceeding anyway');
+            log.warn('⚠️  LTI validation failed in dev mode — proceeding anyway');
         }
 
         // Extract LTI parameters
@@ -349,7 +408,7 @@ app.post('/lti/launch', (req, res) => {
                     { userId: ltiData.userId, resourceLinkId: ltiData.resourceLinkId },
                     { $set: outcomesDoc },
                     { upsert: true }
-                ).catch(e => console.error('Failed to store outcomes data:', e));
+                ).catch(e => log.error('Failed to store outcomes data:', e));
             } else {
                 global.inMemoryOutcomes = global.inMemoryOutcomes || {};
                 global.inMemoryOutcomes[`${ltiData.userId}:${ltiData.resourceLinkId}`] = outcomesDoc;
@@ -361,54 +420,23 @@ app.post('/lti/launch', (req, res) => {
             try {
                 const mapping = await discMappingsCollection.findOne({ resultSourcedId: ltiData.resultSourcedId });
                 if (mapping) dbDisc = mapping.disc;
-            } catch (e) { console.error('[LTI POST] discMappings lookup failed:', e); }
+            } catch (e) { log.error('[LTI POST] discMappings lookup failed:', e); }
         }
 
-        // Query param takes highest priority — allows unique URLs like ?disc=3340-mod5
-        let disc = req.query.disc || null;
-
-        // ext_d2l_link_id is the D2L content topic ID — unique per placed link, most reliable
-        // 3300 server only — 3340 IDs are intentionally excluded (handled by ksu-discussion-lti-3340)
-        const TOPIC_ID_TO_DISC = {
-            '62350211': '3300-disc0', '62350212': '3300-disc1', '62350213': '3300-disc2',
-            '62350214': '3300-disc3', '62350215': '3300-disc4', '62350216': '3300-disc5',
-            '62350217': '3300-disc6', '62350218': '3300-disc7', '62350219': '3300-disc8',
-            '62351528': '3300-disc0', '62351529': '3300-disc1', '62351530': '3300-disc2',
-            '62351531': '3300-disc3', '62351532': '3300-disc4', '62351533': '3300-disc5',
-            '62351534': '3300-disc6', '62351535': '3300-disc7',
-        };
-        if (!disc && req.body.ext_d2l_link_id) {
-            disc = TOPIC_ID_TO_DISC[String(req.body.ext_d2l_link_id)] || null;
-        }
-
-        // Title map fallback — covers per-topic LTI links (MENT 3300 only)
-        if (!disc) {
-            const titleMap = {
-                'Discussion 0: Introduce Yourself':                      '3300-disc0',
-                'Discussion 1: Choose Your Podcast Topic':               '3300-disc1',
-                'Discussion 1: Podcasts You Watch':                      '3300-disc1',
-                'Discussion 2: Peer Critique \u2014 Episode 2':          '3300-disc2',
-                'Discussion 2: Peer Critique \u2014 Episode 1':          '3300-disc2',
-                'Discussion 3: The Sound of Podcasting':                 '3300-disc3',
-                'Discussion 4: Peer Critique \u2014 Episode 3':          '3300-disc4',
-                'Discussion 5: Brand Identity in the Wild':              '3300-disc5',
-                'Discussion 6: Peer Critique \u2014 Episode 5':          '3300-disc6',
-                'Discussion 7: Episode Structure Analysis':              '3300-disc7',
-                'Discussion 8: Capstone Showcase & Final Peer Critique': '3300-disc8',
-            };
-            disc = titleMap[ltiData.resourceLinkTitle] || null;
-        }
-
-        // Safety guard: this server only handles 3300 discussions
-        if (disc && disc.startsWith('3340-')) {
-            console.error(`[LTI Launch] BLOCKED: 3340 disc key "${disc}" attempted on 3300 server (link_id=${req.body.ext_d2l_link_id}, title="${ltiData.resourceLinkTitle}")`);
-            disc = null;
-        }
+        // Resolve the discussion key from query param, LTI body, or DB mapping.
+        // The rules live in discussions.json so they can be edited without touching code.
+        const disc = resolveDisc({
+            queryDisc: req.query.disc,
+            body: req.body,
+            extD2lLinkId: req.body.ext_d2l_link_id,
+            resourceLinkTitle: ltiData.resourceLinkTitle,
+            dbDisc,
+        });
 
         if (disc) {
-            console.log(`[LTI Launch] Resolved disc=${disc} (title="${ltiData.resourceLinkTitle}", ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}, query.disc=${req.query.disc || 'n/a'})`);
+            log.info(`[LTI Launch] Resolved disc=${disc} (title="${ltiData.resourceLinkTitle}", ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}, query.disc=${req.query.disc || 'n/a'})`);
         } else {
-            console.warn(`[LTI Launch] Could not resolve disc title="${ltiData.resourceLinkTitle}" ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}`);
+            log.warn(`[LTI Launch] Could not resolve disc title="${ltiData.resourceLinkTitle}" ext_d2l_link_id=${req.body.ext_d2l_link_id || 'n/a'}`);
         }
 
         // Persist mapping keyed by resourceLinkId (unique per placed D2L link)
@@ -417,7 +445,7 @@ app.post('/lti/launch', (req, res) => {
                 { resourceLinkId: ltiData.resourceLinkId },
                 { $set: { resourceLinkId: ltiData.resourceLinkId, disc, resultSourcedId: ltiData.resultSourcedId, userId: ltiData.userId, updatedAt: new Date().toISOString() } },
                 { upsert: true }
-            ).catch(e => console.error('Failed to auto-save disc mapping:', e));
+            ).catch(e => log.error('Failed to auto-save disc mapping:', e));
         }
 
         // Fall back to DB mapping (for shared-link courses)
@@ -441,10 +469,10 @@ app.post('/lti/launch', (req, res) => {
         };
 
         req.session.regenerate((err) => {
-            if (err) console.error('Session regenerate error:', err);
+            if (err) log.error('Session regenerate error:', err);
             req.session.user = userData;
             req.session.save((err2) => {
-                if (err2) console.error('Session save error:', err2);
+                if (err2) log.error('Session save error:', err2);
                 const ltiToken = createLtiToken(userData);
                 if (isInstructor) {
                     res.redirect(`/instructor.html?lti_token=${ltiToken}`);
@@ -456,14 +484,17 @@ app.post('/lti/launch', (req, res) => {
             });
         });
       } catch (e) {
-        console.error('[LTI POST] Unhandled error:', e);
+        log.error('[LTI POST] Unhandled error:', e);
         if (!res.headersSent) res.status(500).send('Internal server error during LTI launch.');
       }
     });
 });
 
-// Test launch route (bypasses OAuth signature for testing)
+// Test launch route (bypasses OAuth signature for testing) — dev only.
 app.post('/lti/test-launch', (req, res) => {
+    if (!isDev) {
+        return res.status(404).send('Not found');
+    }
     const testSecret = req.body.test_secret;
     if (testSecret !== config.lti.consumerSecret) {
         return res.status(401).send('Invalid test secret.');
@@ -484,11 +515,16 @@ app.post('/lti/test-launch', (req, res) => {
         ltiData.roles.toLowerCase().includes(role.toLowerCase())
     );
 
-    // Test launches have no D2L title map or disc mapping to resolve against, so derive a
-    // disc from the (optional) disc field or fall back to resourceLinkId. Without this, posts
-    // would save with disc=null and GET /api/posts (strict isolation guard) would never return
-    // them, making submissions appear to vanish on refresh.
-    const disc = req.body.disc || ltiData.resourceLinkId;
+    // Test launches resolve the same way as real LTI launches: custom_disc, title map,
+    // then fall back to the resourceLinkId so posts are isolated by link.
+    const resolvedDisc = resolveDisc({
+        queryDisc: req.body.disc,
+        body: req.body,
+        resourceLinkTitle: ltiData.resourceLinkTitle,
+        extD2lLinkId: req.body.ext_d2l_link_id,
+        dbDisc: null,
+    });
+    const disc = resolvedDisc || ltiData.resourceLinkId;
 
     req.session.user = {
         id: ltiData.userId,
@@ -560,6 +596,20 @@ function requireInstructor(req, res, next) {
 }
 
 // ======================
+// API: Available Discussions
+// ======================
+
+app.get('/api/discussions', requireAuth, (req, res) => {
+    try {
+        const options = getDiscOptions();
+        res.json({ discussions: options });
+    } catch (error) {
+        log.error('Error loading discussion options:', error);
+        res.status(500).json({ error: 'Failed to load discussion options' });
+    }
+});
+
+// ======================
 // API: User Info
 // ======================
 
@@ -567,14 +617,12 @@ app.get('/api/user', requireAuth, async (req, res) => {
     let instructions = null;
     const discKey = req.session.user.disc;
 
-    // Use hardcoded correct instructions for 3300 (override any incorrect DB entries)
-    if (discKey && discKey.startsWith('3300-disc')) {
-        instructions = CORRECT_3300_INSTRUCTIONS[discKey] || null;
-    }
+    // Use configured instructions if available for this disc key
+    instructions = getInstructions(discKey);
 
-    // Fallback to DB for other courses or if no hardcoded instructions
-    if (!instructions && discussionLabelsCollection && discKey) {
-        const doc = await discussionLabelsCollection.findOne({ resourceLinkId: discKey });
+    // Fallback to DB for other courses or if no configured instructions
+    if (!instructions && discussionLabelsCollection && req.session.user.resourceLinkId) {
+        const doc = await discussionLabelsCollection.findOne({ resourceLinkId: req.session.user.resourceLinkId });
         if (doc && doc.instructions) instructions = doc.instructions;
     }
 
@@ -658,7 +706,7 @@ app.get('/api/posts', requireAuth, async (req, res) => {
         // STRICT ISOLATION: Every discussion must have a disc identifier
         // If disc is not set, return empty array (student must go through proper LTI launch)
         if (!disc) {
-            console.log(`[Posts] Rejecting request - no disc in session for user ${req.session.user.id}`);
+            log.info(`[Posts] Rejecting request - no disc in session for user ${req.session.user.id}`);
             return res.json([]);
         }
 
@@ -687,14 +735,14 @@ app.get('/api/posts', requireAuth, async (req, res) => {
 
         res.json(posts);
     } catch (error) {
-        console.error('Error loading posts:', error);
+        log.error('Error loading posts:', error);
         res.status(500).json({ error: 'Failed to load posts' });
     }
 });
 
 app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
     try {
-        const { text, parentId, typingAnalytics, sessionTimeline } = req.body;
+        const { text, pasted, parentId, typingAnalytics, sessionTimeline } = req.body;
 
         if (!text || typeof text !== 'string' || text.trim().length < 10) {
             return res.status(400).json({ error: 'Post must be at least 10 characters' });
@@ -703,6 +751,9 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
         if (text.length > 50000) {
             return res.status(400).json({ error: 'Post too long (max 50,000 characters)' });
         }
+
+        // Optional pasted references / links / images. Sanitized server-side.
+        const safePasted = sanitizePastedHtml(pasted).substring(0, 50000);
 
         // Run AI detection
         let aiResults = null;
@@ -755,6 +806,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
             authorName: req.session.user.name,
             authorEmail: req.session.user.email,
             text: text.trim(),
+            pasted: safePasted,
             wordCount: text.trim().split(/\s+/).length,
             timestamp: new Date().toISOString(),
             aiResults,
@@ -770,13 +822,13 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
             global.inMemoryPosts.push(post);
         }
 
-        console.log(`Post from ${req.session.user.name} (${compositeRisk} risk, score ${compositeScore})`);
+        log.info(`Post from ${req.session.user.name} (${compositeRisk} risk, score ${compositeScore})`);
 
         // Return sanitized version to student
         const { aiResults: _, typingAnalytics: __, compositeScore: _s, compositeRisk: _r, ...safePost } = post;
         res.json({ success: true, post: safePost });
     } catch (error) {
-        console.error('Post creation error:', error);
+        log.error('Post creation error:', error);
         res.status(500).json({ error: 'Failed to create post' });
     }
 });
@@ -787,7 +839,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
 
 app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
     try {
-        const { text, scratchPad } = req.body;
+        const { text, scratchPad, pasted } = req.body;
 
         const draft = {
             userEmail: req.session.user.email,
@@ -795,6 +847,7 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
             resourceLinkId: req.session.user.resourceLinkId,
             text: typeof text === 'string' ? text.substring(0, 50000) : '',
             scratchPad: typeof scratchPad === 'string' ? scratchPad.substring(0, 50000) : '',
+            pasted: sanitizePastedHtml(pasted).substring(0, 50000),
             savedAt: new Date().toISOString()
         };
 
@@ -811,7 +864,7 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
 
         res.json({ success: true, savedAt: draft.savedAt });
     } catch (error) {
-        console.error('Save draft error:', error);
+        log.error('Save draft error:', error);
         res.status(500).json({ error: 'Failed to save draft' });
     }
 });
@@ -836,10 +889,11 @@ app.get('/api/load-draft', requireAuth, async (req, res) => {
             found: true,
             text: draft.text,
             scratchPad: draft.scratchPad || '',
+            pasted: draft.pasted || '',
             savedAt: draft.savedAt
         });
     } catch (error) {
-        console.error('Load draft error:', error);
+        log.error('Load draft error:', error);
         res.status(500).json({ error: 'Failed to load draft' });
     }
 });
@@ -900,13 +954,13 @@ async function runAIDetection(text) {
                         provider: 'sapling'
                     });
                 } catch (e) {
-                    console.error('Sapling parse error:', e.message);
+                    log.error('Sapling parse error:', e.message);
                     resolve(null);
                 }
             });
         });
 
-        apiReq.on('error', (e) => { console.error('Sapling API error:', e.message); resolve(null); });
+        apiReq.on('error', (e) => { log.error('Sapling API error:', e.message); resolve(null); });
         apiReq.setTimeout(10000, () => { apiReq.destroy(); resolve(null); });
         apiReq.write(postData);
         apiReq.end();
@@ -926,7 +980,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
         // discussions within their course. D2L can issue different context_ids for the same
         // course, so contextId is unreliable for course-wide grouping (see DEVELOPER-NOTES).
         // If a specific disc is selected, additionally filter by disc value.
-        console.log('[instructor/posts] contextTitle:', contextTitle, 'resourceLinkId:', resourceLinkId, 'disc:', disc);
+        log.info('[instructor/posts] contextTitle:', contextTitle, 'resourceLinkId:', resourceLinkId, 'disc:', disc);
         const query = disc ? { contextTitle, disc } : { contextTitle };
         let posts;
 
@@ -951,7 +1005,7 @@ app.get('/api/instructor/posts', requireInstructor, async (req, res) => {
 
         res.json(posts);
     } catch (error) {
-        console.error('Error loading instructor posts:', error);
+        log.error('Error loading instructor posts:', error);
         res.status(500).json({ error: 'Failed to load posts' });
     }
 });
@@ -971,7 +1025,11 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
         }
 
         // Ensure the discussion belongs to the instructor's course before renaming.
-        const owned = await postsCollection.findOne({ resourceLinkId, contextTitle });
+        // Check posts/labels with the same contextTitle, or the resource link from the instructor's
+        // own current session (covers a brand-new link before any posts exist).
+        const owned = await postsCollection.findOne({ resourceLinkId, contextTitle })
+            || await discussionLabelsCollection.findOne({ resourceLinkId, contextTitle })
+            || (resourceLinkId === req.session.user.resourceLinkId);
         if (!owned) {
             return res.status(403).json({ error: 'This discussion does not belong to your course.' });
         }
@@ -987,7 +1045,7 @@ app.post('/api/instructor/discussion-label', requireInstructor, async (req, res)
 
         res.json({ success: true, resourceLinkId, label: label.trim() });
     } catch (error) {
-        console.error('Error setting discussion label:', error);
+        log.error('Error setting discussion label:', error);
         res.status(500).json({ error: 'Failed to save label' });
     }
 });
@@ -1011,7 +1069,7 @@ app.post('/api/instructor/set-instructions', requireInstructor, async (req, res)
         );
         res.json({ success: true, resourceLinkId });
     } catch (error) {
-        console.error('Error setting instructions:', error);
+        log.error('Error setting instructions:', error);
         res.status(500).json({ error: 'Failed to save instructions' });
     }
 });
@@ -1081,10 +1139,10 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
             );
         }
 
-        console.log(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${disc || resourceLinkId}`);
+        log.info(`Grade sent to D2L: ${outcomesData.userName} = ${score}/100 for ${disc || resourceLinkId}`);
         res.json({ success: true, message: `Grade of ${score}/100 sent to D2L gradebook` });
     } catch (error) {
-        console.error('Grade submission error:', error);
+        log.error('Grade submission error:', error);
         res.status(500).json({ error: 'Failed to submit grade' });
     }
 });
@@ -1169,14 +1227,14 @@ function sendLTIGrade(serviceUrl, sourcedId, score) {
             apiRes.on('end', () => {
                 const success = data.includes('success') && apiRes.statusCode >= 200 && apiRes.statusCode < 300;
                 if (!success) {
-                    console.error('LTI grade passback failed:', apiRes.statusCode, data.substring(0, 500));
+                    log.error('LTI grade passback failed:', apiRes.statusCode, data.substring(0, 500));
                 }
                 resolve(success);
             });
         });
 
         apiReq.on('error', (e) => {
-            console.error('LTI grade passback error:', e.message);
+            log.error('LTI grade passback error:', e.message);
             resolve(false);
         });
         apiReq.setTimeout(15000, () => { apiReq.destroy(); resolve(false); });
@@ -1189,7 +1247,10 @@ function sendLTIGrade(serviceUrl, sourcedId, score) {
 // STATIC FILES
 // ======================
 
-const allowedFiles = ['discussion.html', 'instructor.html', 'pick-discussion.html', 'styles.css', 'script.js', 'discussion.js', 'test-launch.html'];
+const allowedFiles = ['discussion.html', 'instructor.html', 'pick-discussion.html', 'styles.css', 'script.js', 'discussion.js'];
+if (isDev) {
+    allowedFiles.push('test-launch.html');
+}
 
 app.get('/:file', (req, res, next) => {
     const file = req.params.file;
@@ -1218,14 +1279,14 @@ app.get('/', (req, res) => {
 // ======================
 
 app.listen(PORT, () => {
-    console.log(`✅ KSU Discussion LTI running on port ${PORT}`);
-    console.log(`   Environment: ${isDev ? 'development' : 'production'}`);
+    log.info(`✅ KSU Discussion LTI running on port ${PORT}`);
+    log.info(`   Environment: ${isDev ? 'development' : 'production'}`);
     if (isDev) {
-        console.log(`   Dev login: http://localhost:${PORT}/dev/login?role=student`);
-        console.log(`   Instructor: http://localhost:${PORT}/dev/login?role=instructor`);
+        log.info(`   Dev login: http://localhost:${PORT}/dev/login?role=student`);
+        log.info(`   Instructor: http://localhost:${PORT}/dev/login?role=instructor`);
     }
 });
 
 // Connect to MongoDB in the background — don't block server startup.
 // Render's health check will fail (502) if the port isn't listening quickly enough.
-connectDatabase().catch(err => console.error('Database connection error:', err));
+connectDatabase().catch(err => log.error('Database connection error:', err));

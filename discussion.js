@@ -15,6 +15,7 @@ class DiscussionBoard {
         this.composeHeading = document.getElementById('compose-heading');
         this.refreshBtn = document.getElementById('refresh-posts-btn');
         this.pasteWarning = document.getElementById('paste-warning');
+        this.pasteField = document.getElementById('paste-field');
 
         this.userInfo = null;
         this.replyingTo = null; // parentId for reply mode
@@ -86,7 +87,7 @@ class DiscussionBoard {
                 this.discussionTitle.textContent = this.userInfo.resourceLinkTitle || 'Discussion Board';
                 if (this.userInfo.instructions) {
                     const panel = document.getElementById('instructions-panel');
-                    if (panel) { panel.innerHTML = this.userInfo.instructions; panel.style.display = 'block'; }
+                    if (panel) { panel.innerHTML = this.sanitizeHtml(this.userInfo.instructions); panel.style.display = 'block'; }
                 }
                 this.refreshSubmitState();
                 this.loadPosts();
@@ -140,6 +141,7 @@ class DiscussionBoard {
                         <span class="post-time">${this.formatTime(post.timestamp)}</span>
                     </div>
                     <div class="post-body">${this.escapeHtml(post.text)}</div>
+                    ${post.pasted ? `<div class="post-pasted"><div class="post-pasted-label">Pasted references</div>${this.sanitizeHtml(post.pasted)}</div>` : ''}
                     <div class="post-footer">
                         <span class="post-word-count">${post.wordCount} words</span>
                         <button class="reply-btn" data-reply-id="${post.id}" data-reply-name="${this.escapeHtml(post.authorName)}">Reply</button>
@@ -153,6 +155,7 @@ class DiscussionBoard {
                                         <span class="post-time">${this.formatTime(reply.timestamp)}</span>
                                     </div>
                                     <div class="post-body">${this.escapeHtml(reply.text)}</div>
+                                    ${reply.pasted ? `<div class="post-pasted"><div class="post-pasted-label">Pasted references</div>${this.sanitizeHtml(reply.pasted)}</div>` : ''}
                                     <span class="post-word-count">${reply.wordCount} words</span>
                                 </div>
                             `).join('')}
@@ -210,6 +213,7 @@ class DiscussionBoard {
 
     async submitPost() {
         const text = this.editor.textContent.trim();
+        const pasted = this.pasteField ? this.pasteField.innerHTML.trim() : '';
 
         if (!this.userInfo) {
             alert('Please wait for authentication.');
@@ -232,6 +236,7 @@ class DiscussionBoard {
                 headers: this.apiHeaders(),
                 body: JSON.stringify({
                     text,
+                    pasted,
                     parentId: this.replyingTo || null,
                     typingAnalytics: analytics,
                     sessionTimeline: this.typingAnalytics.sessionTimeline
@@ -243,8 +248,9 @@ class DiscussionBoard {
                 throw new Error(err.error || 'Failed to post');
             }
 
-            // Success — reset editor
+            // Success — reset editor and paste field
             this.editor.textContent = '';
+            if (this.pasteField) this.pasteField.innerHTML = '';
             this.cancelReply();
             this.resetAnalytics();
             this.updateStats();
@@ -559,7 +565,8 @@ class DiscussionBoard {
                 headers: this.apiHeaders(),
                 body: JSON.stringify({
                     text: this.editor.textContent || '',
-                    scratchPad: scratchPad ? scratchPad.innerHTML : ''
+                    scratchPad: scratchPad ? scratchPad.innerHTML : '',
+                    pasted: this.pasteField ? this.pasteField.innerHTML : ''
                 })
             });
             this.saveDraftBtn.textContent = '✅ Saved!';
@@ -581,6 +588,7 @@ class DiscussionBoard {
                 this.editor.textContent = data.text;
                 const scratchPad = document.getElementById('scratch-pad');
                 if (scratchPad && data.scratchPad) scratchPad.innerHTML = data.scratchPad;
+                if (this.pasteField && data.pasted) this.pasteField.innerHTML = data.pasted;
                 this.updateStats();
                 this.refreshSubmitState();
             }
@@ -615,6 +623,82 @@ class DiscussionBoard {
     // ======================
     // HELPERS
     // ======================
+
+    // Sanitize HTML to a small allow-list of formatting tags, links, and images.
+    // Removes script/style tags, event handlers, and dangerous URL schemes.
+    sanitizeHtml(raw) {
+        if (!raw) return '';
+        const template = document.createElement('template');
+        template.innerHTML = String(raw).trim();
+
+        const allowedTags = new Set(['P', 'BR', 'STRONG', 'EM', 'B', 'I', 'U', 'S', 'STRIKE', 'SUB', 'SUP', 'OL', 'UL', 'LI', 'H1', 'H2', 'H3', 'H4', 'A', 'IMG', 'DIV', 'SPAN', 'BLOCKQUOTE', 'PRE', 'CODE']);
+        const allowedAttrs = new Set(['alt', 'title', 'width', 'height', 'loading']);
+        const result = document.createElement('div');
+
+        const walk = (node, parent) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                parent.appendChild(document.createTextNode(node.nodeValue));
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+            const tag = node.tagName.toUpperCase();
+            if (!allowedTags.has(tag)) {
+                for (const child of Array.from(node.childNodes)) {
+                    walk(child, parent);
+                }
+                return;
+            }
+
+            const el = document.createElement(tag);
+
+            if (tag === 'A') {
+                for (const attr of Array.from(node.attributes)) {
+                    const name = attr.name.toLowerCase();
+                    if (name !== 'href' && name !== 'target') continue;
+                    if (name === 'href') {
+                        const val = attr.value.trim().toLowerCase();
+                        if (val.startsWith('javascript:') || val.startsWith('data:') || val.startsWith('vbscript:')) continue;
+                    }
+                    el.setAttribute(attr.name, attr.value);
+                }
+                if (el.hasAttribute('href')) {
+                    el.setAttribute('target', '_blank');
+                    el.setAttribute('rel', 'noopener noreferrer');
+                }
+            } else if (tag === 'IMG') {
+                let hasValidSrc = false;
+                for (const attr of Array.from(node.attributes)) {
+                    const name = attr.name.toLowerCase();
+                    if (!allowedAttrs.has(name)) continue;
+                    el.setAttribute(attr.name, attr.value);
+                    if (name === 'src') hasValidSrc = true;
+                }
+                if (!hasValidSrc) {
+                    // Drop images with no src
+                    return;
+                }
+            } else {
+                // For all other allowed tags, keep only safe global attributes.
+                for (const attr of Array.from(node.attributes)) {
+                    const name = attr.name.toLowerCase();
+                    if (allowedAttrs.has(name)) {
+                        el.setAttribute(attr.name, attr.value);
+                    }
+                }
+            }
+
+            for (const child of Array.from(node.childNodes)) {
+                walk(child, el);
+            }
+            parent.appendChild(el);
+        };
+
+        for (const child of Array.from(template.content.childNodes)) {
+            walk(child, result);
+        }
+        return result.innerHTML;
+    }
 
     escapeHtml(str) {
         const div = document.createElement('div');

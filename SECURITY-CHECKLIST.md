@@ -66,7 +66,7 @@
   - No memory leaks
 
 - [x] **Request timeouts**
-  - GPTZero API: 30 second timeout
+  - Sapling API: 30 second timeout
   - Prevents hanging requests
 
 - [x] **Input validation**
@@ -86,10 +86,10 @@
    # 3. Certificates & secrets → New client secret
    # 4. Update AZURE_CLIENT_SECRET in Azure App Settings
    
-   # GPTZero API Key
-   # 1. Go to GPTZero dashboard
+   # Sapling API Key
+   # 1. Go to Sapling dashboard
    # 2. Generate new API key
-   # 3. Update GPTZERO_API_KEY in Azure App Settings
+   # 3. Update SAPLING_API_KEY in your app environment
    ```
 
 2. **Remove hardcoded secrets from git history**:
@@ -133,7 +133,7 @@
 5. **Add logging and monitoring**
    - Log all submissions
    - Alert on suspicious patterns
-   - Track GPTZero API costs
+   - Track Sapling API costs
 
 6. **Implement proper JWT verification**
    - Fetch and cache Azure JWKS

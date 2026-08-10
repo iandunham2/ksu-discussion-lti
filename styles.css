@@ -493,6 +493,47 @@ footer {
     font-style: italic;
 }
 
+.paste-field-wrapper {
+    margin-top: 12px;
+}
+
+.paste-field-hint {
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 6px;
+}
+
+.compose-area #paste-field {
+    min-height: 80px;
+    max-height: 200px;
+    padding: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    outline: none;
+    overflow-y: auto;
+    background: #fff;
+}
+
+.compose-area #paste-field:focus {
+    border-color: #FFC72C;
+    box-shadow: 0 0 0 3px rgba(255, 199, 44, 0.15);
+}
+
+.compose-area #paste-field:empty:before {
+    content: attr(placeholder);
+    color: #bbb;
+    font-style: italic;
+}
+
+.compose-area #paste-field img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 8px 0;
+}
+
 .compose-footer {
     display: flex;
     align-items: center;
@@ -625,6 +666,32 @@ footer {
     color: #333;
     white-space: pre-wrap;
     margin-bottom: 8px;
+}
+
+.post-pasted {
+    background: #f8f9fa;
+    border-left: 3px solid #FFC72C;
+    border-radius: 6px;
+    padding: 12px;
+    margin: 10px 0 12px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.post-pasted-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.post-pasted img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 8px 0;
 }
 
 .post-footer {

@@ -1,6 +1,6 @@
 {
   "name": "ksu-discussion-lti",
-  "version": "2.0.0",
+  "version": "2.3.9",
   "description": "LTI 1.1 Discussion Tool with AI Detection for KSU D2L Brightspace",
   "main": "server.js",
   "scripts": {
@@ -20,21 +20,23 @@
   "author": "Kennesaw State University",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "dotenv": "^16.0.3",
-    "express-session": "^1.17.3",
-    "connect-mongo": "^5.0.0",
-    "mongodb": "^5.6.0",
-    "helmet": "^7.0.0",
-    "cors": "^2.8.5",
     "compression": "^1.7.4",
-    "morgan": "^1.10.0",
+    "connect-mongo": "^5.0.0",
+    "cors": "^2.8.5",
+    "d2l-shared": "^0.2.1",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
     "express-rate-limit": "^6.7.0",
+    "express-session": "^1.17.3",
+    "helmet": "^7.0.0",
     "ims-lti": "^3.0.2",
-    "oauth-sign": "^0.9.0"
+    "mongodb": "^5.6.0",
+    "morgan": "^1.10.0",
+    "oauth-sign": "^0.9.0",
+    "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
-    "nodemon": "^2.0.22"
+    "nodemon": "^3.1.14"
   },
   "engines": {
     "node": ">=16.0.0",

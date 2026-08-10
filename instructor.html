@@ -764,15 +764,19 @@
                             <div class="metric"><div class="metric-label">WPM Spikes / Pastes</div><div class="metric-value">${wpmSpikes} / ${pasteAttempts}</div></div>
                             <div class="metric"><div class="metric-label">Words / Keys / ${sessionDuration}min</div><div class="metric-value">${wordCount} / ${totalKeystrokes}</div></div>
                         </div>
-                        <div class="text-preview">${(sub.text || '').substring(0, 200)}...</div>
+                        <div class="text-preview">${(sub.text || '').substring(0, 200)}... ${sub.pasted ? '<span style="color:#666;font-size:0.8em;">(has pasted references)</span>' : ''}</div>
                         <button class="expand-btn" onclick="togglePost('${postKey}')">View Full Details</button>
                         <div class="details" id="post-details-${postKey}">
                             <h4>AI Detection Results:</h4>
                             <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
-                                ${formatGPTZeroResults(sub.aiResults)}
+                                ${formatAIResults(sub.aiResults)}
                             </div>
                             <h4>Full Text:</h4>
                             <div class="text-full">${sub.text || 'No text available'}</div>
+                            ${sub.pasted ? `
+                                <h4 style="margin-top: 15px;">Pasted References / Links / Images:</h4>
+                                <div class="pasted-full" style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 8px; line-height: 1.5;">${sub.pasted}</div>
+                            ` : ''}
                             <h4 style="margin-top: 15px;">Keystroke Log (${sub.keystrokeLog?.length || 0} entries):</h4>
                             <div class="keystroke-log">${formatKeystrokeLog(sub.keystrokeLog)}</div>
                             <h4 style="margin-top: 15px;">Session Timeline:</h4>
@@ -924,7 +928,7 @@
             });
         }
 
-        function formatGPTZeroResults(aiResults) {
+        function formatAIResults(aiResults) {
             if (!aiResults || !aiResults.documents || aiResults.documents.length === 0) {
                 return '<p>No AI detection data available</p>';
             }

@@ -6,14 +6,57 @@ This tool adds AI-monitored discussion boards to your D2L Brightspace course. Ea
 
 ---
 
+## New Course Shell Checklist
+
+Use this checklist when adding the tool to a course that has not used it before.
+
+> **LTI version**: this tool uses **LTI 1.1** (OAuth 1.0a signed launch). It does **not** use LTI 1.3 / Advantage, which is why a D2L org administrator is **not** required. In D2L, an instructor with the right role can register an LTI 1.1 tool at the course level.
+>
+> **Who is the tool administrator?**
+>
+> - **In most cases, you are *not* the tool administrator.** Your IT / LMS / eLearning team registers the tool in D2L and gives you the LTI URL, Key, and Secret. You then add it to your modules.
+> - **You are the tool administrator** if you are also the one deploying/hosting the app (e.g. on Render or a KSU server), setting the environment variables, and generating the LTI credentials. If that is you, see `DEVELOPER-NOTES.md` and `README.md` for deployment steps before proceeding.
+
+1. **Confirm the tool is deployed and registered.**
+   - If your institution manages the tool, the administrator should provide the Launch URL, Consumer Key, and Consumer Secret.
+   - If you are self-managing the tool, deploy it first (see `README.md`), then create the LTI Key/Secret and register the tool in your own D2L course.
+
+2. **Register the External Learning Tool in your course.**
+   - Go to **Course Admin → Course Tools → External Learning Tools**.
+   - Click **New Link** (or your institution's equivalent).
+   - Set:
+     - **Title**: AI-Monitored Discussion
+     - **URL**: `https://<your-lti-host>/lti/launch`
+     - **Key**: `LTI_CONSUMER_KEY`
+     - **Secret**: `LTI_CONSUMER_SECRET`
+     - **Security Settings**: enable LTI user ID, role list, user name, user email, and course information.
+
+3. **Place the link in one or more modules.**
+   - Content → Module → **Existing Activities → External Learning Tools → AI-Monitored Discussion**.
+   - Repeat for each module that needs a separate discussion.
+
+4. **Configure each placement.**
+   - **Recommended**: edit the link title to match a discussion in the tool's configuration (e.g. `Module 5 Discussion`).
+   - **Alternative**: add a `custom_disc` parameter to the link.
+   - If neither is set, students will pick from a list on first launch.
+
+5. **Add instructions above each link** (optional).
+   - Create an HTML document or description with the prompt and requirements.
+
+6. **Verify instructor access.**
+   - Launch the link while enrolled as an instructor.
+   - Confirm you see the Instructor Dashboard and the correct module filter.
+
 ## Prerequisites
 
-The tool has already been configured as an External Learning Tool in your course:
+The tool must first be registered as an **External Learning Tool** in the D2L course. Your institution's tool administrator will provide these values:
 
 - **Tool Name**: AI-Monitored Discussion
-- **Launch URL**: `https://ksu-discussion-lti.onrender.com/lti/launch`
-- **Consumer Key**: `ksu-discussion-tool`
-- **Consumer Secret**: `ksu-d2l-secret-2026`
+- **Launch URL**: `https://<your-lti-host>/lti/launch`
+- **Consumer Key**: `LTI_CONSUMER_KEY`
+- **Consumer Secret**: `LTI_CONSUMER_SECRET`
+
+> Replace `<your-lti-host>`, `LTI_CONSUMER_KEY`, and `LTI_CONSUMER_SECRET` with the values supplied by your tool administrator.
 
 ---
 
@@ -21,29 +64,36 @@ The tool has already been configured as an External Learning Tool in your course
 
 Each time you add the tool to a module, it creates a **separate, isolated discussion instance**. Posts in Module 1 are completely separate from Module 2, etc.
 
-> ### ⚠️ IMPORTANT: Use ONE link per discussion assignment
->
-> The tool separates discussions by the **individual link** you place in D2L (each link has its own hidden ID). It does **not** know about D2L's "Discussion 1 / Discussion 2" topic names.
->
-> **Do this:** Add a **new, separate** "AI-Monitored Discussion" link for **every** discussion assignment (Introduction, Podcast Topic, etc.).
->
-> **Do NOT do this:** Reuse the **same** link for multiple assignments across the semester. If you do, every assignment's posts pile into one board and the dashboard cannot tell them apart — they will all show as a single module, and each student's posts from different assignments get grouped together.
->
-> If you have already reused one link, the dashboard will still group each student's posts **by thread** so you can tell the assignments apart, but a separate link per assignment is the clean setup.
+You only need **one** LTI tool configured in D2L. There are three ways to add the tool to a module; the recommended way is Option A.
 
-### Step-by-Step
+### Option A: One LTI tool, one link, automatic by title (recommended)
 
-1. In your course, click **Content** in the navbar
-2. Navigate to the module where you want a discussion (e.g., "Module 1: Introduction & RAW Photography Fundamentals")
-3. Click **Existing Activities** (gray button)
-4. Select **External Learning Tools** from the dropdown
-5. Choose **AI-Monitored Discussion**
-6. The discussion link now appears in that module
+The tool can look at the **discussion link title** and match it to a module in `discussions.json`.
+
+1. Add a single **AI-Monitored Discussion** link to a module.
+2. Edit the link title to one of the known titles, e.g.:
+   - `Discussion 1: Podcasts You Watch`
+   - `Module 5 Discussion`
+3. The tool resolves the correct discussion automatically.
+
+### Option B: One LTI tool, custom parameter (best for reusing the same link everywhere)
+
+If you want the same LTI link placed in multiple modules, set the `custom_disc` parameter in each D2L link:
+
+```
+custom_disc=3300-disc1
+```
+
+Allowed values are the `disc` keys in `discussions.json` (`3300-disc0` through `3300-disc8`, or `3340-mod1`, `3340-mod2`, etc.).
+
+### Option C: One LTI tool, one link, student picks the module
+
+If the title or `custom_disc` is not set, the student sees a dropdown listing all configured discussions. They pick their module once, and the choice is saved for that link.
 
 ### Repeat for Each Module
 
 - Go to **Module 2** → Existing Activities → External Learning Tools → AI-Monitored Discussion
-- Go to **Module 3** → Existing Activities → External Learning Tools → AI-Monitored Discussion
+- Set the title or `custom_disc` for that module
 - Continue for all modules that need a discussion
 
 Each placement is automatically isolated — students only see posts for the module they launched from.
@@ -183,9 +233,9 @@ Module 1: Introduction & RAW Photography Fundamentals
 The free hosting tier sleeps after 15 minutes of inactivity. Wait 30-50 seconds and refresh. Once awake, it stays up as long as students are using it.
 
 ### Students see "LTI launch validation failed"
-Make sure the Consumer Key and Secret in D2L match exactly:
-- Key: `ksu-discussion-tool`
-- Secret: `ksu-d2l-secret-2026`
+Make sure the Consumer Key and Secret in D2L match the values configured in the tool:
+- Key: `LTI_CONSUMER_KEY`
+- Secret: `LTI_CONSUMER_SECRET`
 
 ### Instructor sees student view (or vice versa)
 Check that the Security Settings for the tool link include:
@@ -208,4 +258,4 @@ This should not happen. Each module placement gets a unique `resource_link_id` f
 | Rename a module in the dashboard | Select a Module → click ✏️ Rename → type a name |
 | Rename the discussion in D2L | Click dropdown arrow → Edit Properties In-place → change title |
 | View student posts + AI scores | Click the discussion link as an instructor |
-| Test as a student | Use `https://ksu-discussion-lti.onrender.com/test-launch.html` |
+| Test as a student | Use the dev/test login URL supplied by your tool administrator (not available in production). |
