@@ -129,7 +129,7 @@ async function connectDatabase() {
 // Trust Render/Heroku reverse proxy for secure cookies
 app.set('trust proxy', 1);
 
-const frameAncestors = ["'self'", ...parseEnvList('LTI_FRAME_ANCESTORS')];
+const frameAncestors = ["'self'", 'https://kennesaw.view.usg.edu', 'https://*.view.usg.edu', ...parseEnvList('LTI_FRAME_ANCESTORS')];
 const allowedCorsOrigins = parseEnvList('CORS_ORIGIN');
 
 const corsOptions = {
