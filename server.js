@@ -137,6 +137,12 @@ const corsOptions = {
         if (isDev) return callback(null, true);
         if (!origin) return callback(null, true); // same-origin requests have no Origin header
         if (allowedCorsOrigins.includes(origin)) return callback(null, true);
+        // Allow D2L Brightspace iframe parents and the tool's own origin
+        const d2lRegex = /^https:\/\/(?:.*\.)?view\.usg\.edu$/;
+        if (d2lRegex.test(origin)) return callback(null, true);
+        if (origin === 'https://ksu-discussion-lti.onrender.com' || origin.startsWith('https://ksu-discussion-lti.onrender.com:')) {
+            return callback(null, true);
+        }
         return callback(new Error(`CORS origin not allowed: ${origin}`), false);
     },
     credentials: true
