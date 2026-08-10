@@ -1,5 +1,20 @@
 {
   "topicIdToDisc": {
+    "6060731": "3300-disc0",
+    "6060732": "3300-disc9",
+    "6060734": "3300-disc1",
+    "6060735": "3300-disc2",
+    "6060736": "3300-disc3",
+    "6060737": "3300-disc10",
+    "6060738": "3300-disc4",
+    "6060739": "3300-disc11",
+    "6060740": "3300-disc5",
+    "6060741": "3300-disc6",
+    "6060742": "3300-disc12",
+    "6060743": "3300-disc7",
+    "6060748": "3300-disc13",
+    "6060749": "3300-disc14",
+    "6060750": "3300-disc8",
     "61805440": "3340-mod1",
     "61805441": "3340-mod2",
     "61805442": "3340-mod3",
@@ -69,7 +84,8 @@
     "Discussion 12: Placeholder": "3300-disc11",
     "Discussion 13: Placeholder": "3300-disc12",
     "Discussion 14: Placeholder": "3300-disc13",
-    "Discussion 15: Placeholder": "3300-disc14"
+    "Discussion 15: Placeholder": "3300-disc14",
+    "Discussion 9: Capstone Showcase & Final Peer Critique": "3300-disc8"
   },
   "instructions": {
     "3300-disc0": "<h3>Discussion 1: Introduce Yourself</h3>\n<p>Welcome to MENT 3300! Introduce yourself to your classmates. Include your name, major, why you're interested in podcasting, and your favorite podcast.</p>\n<p><strong>Minimum:</strong> 100–200 words. Reply to at least two classmates.</p>",
