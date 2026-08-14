@@ -19,6 +19,7 @@ class DiscussionBoard {
 
         this.userInfo = null;
         this.replyingTo = null; // parentId for reply mode
+        this.initialPostDue = null; // ISO timestamp for initial post deadline
 
         // Safari ITP workaround: capture token from URL and persist for this tab session
         const urlToken = new URLSearchParams(window.location.search).get('lti_token');
@@ -89,6 +90,8 @@ class DiscussionBoard {
                     const panel = document.getElementById('instructions-panel');
                     if (panel) { panel.innerHTML = this.sanitizeHtml(this.userInfo.instructions); panel.style.display = 'block'; }
                 }
+                this.initialPostDue = this.userInfo.initialPostDue || null;
+                this.renderInitialPostDueBanner();
                 this.refreshSubmitState();
                 this.loadPosts();
                 this.loadDraft();
@@ -170,6 +173,8 @@ class DiscussionBoard {
 
     startReply(postId, authorName) {
         this.replyingTo = postId;
+        this.renderInitialPostDueBanner();
+        this.refreshSubmitState();
 
         // Update heading
         this.composeHeading.textContent = `Replying to ${authorName}`;
@@ -209,6 +214,8 @@ class DiscussionBoard {
         const banner = document.getElementById('reply-banner');
         if (banner) banner.style.display = 'none';
         document.querySelectorAll('.post-card.replying-target').forEach(el => el.classList.remove('replying-target'));
+        this.renderInitialPostDueBanner();
+        this.refreshSubmitState();
     }
 
     async submitPost() {
@@ -222,6 +229,13 @@ class DiscussionBoard {
         if (!text || text.length < 10) {
             alert('Please write at least 10 characters.');
             return;
+        }
+
+        if (!this.userInfo.isInstructor && !this.replyingTo && this.initialPostDue) {
+            if (new Date() > new Date(this.initialPostDue)) {
+                alert('The initial post deadline has passed. You may still reply to classmates until the full discussion deadline.');
+                return;
+            }
         }
 
         this.submitPostBtn.disabled = true;
@@ -334,6 +348,24 @@ class DiscussionBoard {
         this.addTimelineEvent('session_started', 'New composition session');
     }
 
+    renderInitialPostDueBanner() {
+        if (!this.initialPostDue || this.userInfo?.isInstructor) return;
+        const now = new Date();
+        const due = new Date(this.initialPostDue);
+        if (now <= due) return;
+        // If past the initial post deadline and not currently replying, show a banner.
+        if (this.replyingTo) return;
+        let banner = document.getElementById('initial-post-due-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'initial-post-due-banner';
+            banner.style.cssText = 'background:#fff3cd;color:#856404;border:1px solid #ffeeba;padding:12px 16px;border-radius:6px;margin-bottom:14px;font-weight:500;';
+            const section = document.getElementById('compose-section');
+            if (section) section.insertBefore(banner, section.firstChild);
+        }
+        banner.textContent = 'The initial post deadline has passed. New top-level posts are no longer accepted, but you may still reply to classmates until the full discussion deadline.';
+    }
+
     // ======================
     // EDITOR EVENTS
     // ======================
@@ -352,14 +384,21 @@ class DiscussionBoard {
         this.editor.addEventListener('drop', (e) => { e.preventDefault(); });
     }
 
-    // Single source of truth for the Post button's enabled state: authenticated AND enough text.
+    // Single source of truth for the Post button's enabled state:
+    // authenticated, enough text, and (for top-level posts) before the initial post deadline.
     refreshSubmitState() {
         if (!this.userInfo) {
             this.submitPostBtn.disabled = true;
             return;
         }
         const text = (this.editor.textContent || '').trim();
-        this.submitPostBtn.disabled = text.length < 10;
+        let blocked = text.length < 10;
+        if (!this.userInfo.isInstructor && !this.replyingTo && this.initialPostDue) {
+            if (new Date() > new Date(this.initialPostDue)) {
+                blocked = true;
+            }
+        }
+        this.submitPostBtn.disabled = blocked;
     }
 
     handleKeyDown(e) {

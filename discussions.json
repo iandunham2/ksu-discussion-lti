@@ -173,5 +173,21 @@
     "4424-disc13": "<h3>Discussion 14: Final reflection on media effects and your own media use.</h3><p><strong>Initial post due Thursday; full discussion due Sunday, December 6 at 11:59 PM ET.</strong></p><p>The Social Dilemma argues that social media platforms are built on <strong>surveillance capitalism</strong> — collecting behavioral data to fuel algorithms engineered to maximize engagement — and that this business model has downstream effects on mental health, political polarization, and the spread of misinformation, often without users realizing how the design itself is shaping their behavior.</p>\n<p>For your final discussion, connect The Social Dilemma's argument back to <strong>at least two theories or concepts from earlier in the course</strong> (e.g., cultivation theory, uses and gratifications, the Elaboration Likelihood Model, framing, or social cognitive theory). Choose a specific claim made in the documentary about how algorithms or design features affect users, and explain it through the lens of those two prior concepts. Then reflect: after a semester of studying media effects theory, has your own view of your social media use changed? Be specific about what, if anything, you're doing differently.</p><p><strong>Instructions:</strong> Post a 250-word initial response by <strong>Thursday</strong> that engages directly with this week's reading (quote or closely paraphrase at least one specific idea, not just the general topic). Reply to at least two classmates by <strong>Sunday</strong>, building on or challenging their connection to the reading. The full discussion (initial post + replies) is due Sunday, December 6 at 11:59 PM ET.</p>",
     "4424-qa": "<h3>Class Q&amp;A</h3><p>This is an open, ungraded space for questions about the course. Before posting, check if your question has already been answered. For questions about a specific reading or theory, please use that week's discussion thread so the conversation stays organized.</p><p><strong>This space is not graded and is not monitored for AI-generated text. You do not need to meet a word count. Replies are optional.</strong></p>"
   },
-  "blockedDiscPrefixes": []
+  "blockedDiscPrefixes": [],
+  "initialPostDue": {
+    "4424-disc0": "2026-08-28T03:59:00.000Z",
+    "4424-disc1": "2026-09-04T03:59:00.000Z",
+    "4424-disc2": "2026-09-11T03:59:00.000Z",
+    "4424-disc3": "2026-09-18T03:59:00.000Z",
+    "4424-disc4": "2026-09-25T03:59:00.000Z",
+    "4424-disc5": "2026-10-02T03:59:00.000Z",
+    "4424-disc6": "2026-10-09T03:59:00.000Z",
+    "4424-disc7": "2026-10-16T03:59:00.000Z",
+    "4424-disc8": "2026-10-23T03:59:00.000Z",
+    "4424-disc9": "2026-10-30T03:59:00.000Z",
+    "4424-disc10": "2026-11-06T04:59:00.000Z",
+    "4424-disc11": "2026-11-13T04:59:00.000Z",
+    "4424-disc12": "2026-11-20T04:59:00.000Z",
+    "4424-disc13": "2026-12-04T04:59:00.000Z"
+  }
 }

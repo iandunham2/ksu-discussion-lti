@@ -22,6 +22,7 @@ try {
 const TOPIC_ID_TO_DISC = config.topicIdToDisc || {};
 const TITLE_TO_DISC = config.titleToDisc || {};
 const INSTRUCTIONS = config.instructions || {};
+const INITIAL_POST_DUE = config.initialPostDue || {};
 const BLOCKED_PREFIXES = Array.isArray(config.blockedDiscPrefixes) ? config.blockedDiscPrefixes : ['3340-'];
 
 function isBlocked(disc) {
@@ -72,6 +73,11 @@ function getInstructions(disc) {
     return INSTRUCTIONS[disc] || null;
 }
 
+function getInitialPostDue(disc) {
+    if (!disc) return null;
+    return INITIAL_POST_DUE[disc] || null;
+}
+
 function getAllInstructions() {
     return { ...INSTRUCTIONS };
 }
@@ -110,11 +116,13 @@ module.exports = {
     TOPIC_ID_TO_DISC,
     TITLE_TO_DISC,
     INSTRUCTIONS,
+    INITIAL_POST_DUE,
     CORRECT_3300_INSTRUCTIONS: INSTRUCTIONS,
     BLOCKED_PREFIXES,
     resolveDisc,
     discFromTitle,
     getInstructions,
+    getInitialPostDue,
     getAllInstructions,
     getDiscLabel,
     getDiscOptions,

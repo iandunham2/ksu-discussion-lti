@@ -20,6 +20,7 @@ const {
     resolveDisc,
     discFromTitle,
     getInstructions,
+    getInitialPostDue,
     getDiscOptions,
 } = require('./discussion-config.js');
 
@@ -661,7 +662,8 @@ app.get('/api/user', requireAuth, async (req, res) => {
         contextTitle: req.session.user.contextTitle,
         resourceLinkTitle: req.session.user.resourceLinkTitle,
         disc: req.session.user.disc || null,
-        instructions
+        instructions,
+        initialPostDue: getInitialPostDue(discKey)
     });
 });
 
@@ -777,6 +779,16 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
 
         if (text.length > 50000) {
             return res.status(400).json({ error: 'Post too long (max 50,000 characters)' });
+        }
+
+        // Enforce initial post deadline: top-level posts (no parentId) are rejected
+        // after the configured initial post due date, unless the user is an instructor.
+        if (!req.session.user.isInstructor && !parentId) {
+            const disc = req.session.user.disc;
+            const initialDue = getInitialPostDue(disc);
+            if (initialDue && new Date() > new Date(initialDue)) {
+                return res.status(403).json({ error: 'The initial post deadline has passed. You may still reply to classmates until Sunday.' });
+            }
         }
 
         // Optional pasted references / links / images. Sanitized server-side.
