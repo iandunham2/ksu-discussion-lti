@@ -709,12 +709,17 @@ class DiscussionBoard {
                 let hasValidSrc = false;
                 for (const attr of Array.from(node.attributes)) {
                     const name = attr.name.toLowerCase();
-                    if (!allowedAttrs.has(name)) continue;
-                    el.setAttribute(attr.name, attr.value);
-                    if (name === 'src') hasValidSrc = true;
+                    if (name === 'src') {
+                        const val = attr.value.trim().toLowerCase();
+                        if (val.startsWith('javascript:') || val.startsWith('vbscript:')) continue;
+                        el.setAttribute('src', attr.value);
+                        hasValidSrc = true;
+                    } else if (allowedAttrs.has(name)) {
+                        el.setAttribute(attr.name, attr.value);
+                    }
                 }
                 if (!hasValidSrc) {
-                    // Drop images with no src
+                    // Drop images with no valid src
                     return;
                 }
             } else {

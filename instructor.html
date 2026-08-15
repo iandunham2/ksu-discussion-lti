@@ -765,7 +765,7 @@
                             <div class="metric"><div class="metric-label">Words / Keys / ${sessionDuration}min</div><div class="metric-value">${wordCount} / ${totalKeystrokes}</div></div>
                         </div>
                         <div class="text-preview">${(sub.text || '').substring(0, 200)}... ${sub.pasted ? '<span style="color:#666;font-size:0.8em;">(has pasted references)</span>' : ''}</div>
-                        <button class="expand-btn" onclick="togglePost('${postKey}')">View Full Details</button>
+                        <button class="expand-btn" data-post-key="${postKey}">View Full Details</button>
                         <div class="details" id="post-details-${postKey}">
                             <h4>AI Detection Results:</h4>
                             <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
@@ -882,7 +882,7 @@
 
                 return `
                     <div class="student-card ${risk}-risk">
-                        <div class="student-header" onclick="toggleStudent('${sid}')">
+                        <div class="student-header" data-sid="${sid}">
                             <div>
                                 <div class="student-name">${student.authorName}</div>
                                 <div class="student-meta">${student.authorEmail} &bull; ${student.posts.length} submission${student.posts.length !== 1 ? 's' : ''}</div>
@@ -923,7 +923,7 @@
             });
             expandedPosts.forEach(key => {
                 const el = document.getElementById(`post-details-${key}`);
-                const btn = document.querySelector(`[onclick="togglePost('${key}')"]`);
+                const btn = document.querySelector(`[data-post-key="${key}"]`);
                 if (el) { el.classList.add('expanded'); if (btn) btn.textContent = 'Hide Details'; }
             });
         }
@@ -1068,7 +1068,7 @@
 
         function togglePost(key) {
             const details = document.getElementById(`post-details-${key}`);
-            const btn = document.querySelector(`[onclick="togglePost('${key}')"]`);
+            const btn = document.querySelector(`[data-post-key="${key}"]`);
             details.classList.toggle('expanded');
             if (details.classList.contains('expanded')) {
                 expandedPosts.add(key);
@@ -1124,6 +1124,21 @@
 
         // Auto-refresh every 15 seconds
         setInterval(loadSubmissions, 15000);
+
+        // Delegate clicks on student headers and post "View Full Details" buttons.
+        document.getElementById('submissions-list').addEventListener('click', (e) => {
+            const header = e.target.closest('.student-header');
+            if (header) {
+                const sid = header.dataset.sid;
+                if (sid) toggleStudent(sid);
+                return;
+            }
+            const expandBtn = e.target.closest('.expand-btn');
+            if (expandBtn) {
+                const key = expandBtn.dataset.postKey;
+                if (key) togglePost(key);
+            }
+        });
         
         // Load on page load
         loadContext();

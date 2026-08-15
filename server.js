@@ -80,7 +80,7 @@ function sanitizePastedHtml(raw) {
             a: ['href', 'target', 'rel', 'title'],
             img: ['src', 'alt', 'title', 'width', 'height', 'loading']
         },
-        allowedSchemes: ['http', 'https', 'mailto'],
+        allowedSchemes: ['http', 'https', 'mailto', 'data'],
         allowedSchemesAppliedToAttributes: ['href', 'src'],
         enforceHtmlBoundary: true
     });
