@@ -124,6 +124,9 @@ Discussion topic IDs, link titles, instruction HTML, and allowed options are loa
   "instructions": {
     "3300-disc0": "<h3>Discussion 0: Introduce Yourself</h3><p>...</p>"
   },
+  "initialPostDue": {
+    "4424-disc0": "2026-08-28T03:59:00.000Z"
+  },
   "blockedDiscPrefixes": ["3340-"],
   "discOptions": [
     { "value": "3300-disc0", "label": "Discussion 0" },
@@ -132,7 +135,9 @@ Discussion topic IDs, link titles, instruction HTML, and allowed options are loa
 }
 ```
 
-`discussion-config.js` exposes `resolveDisc`, `discFromTitle`, `getInstructions`, and `getDiscOptions`, so the server can be configured for any course without code changes.
+`initialPostDue` is optional. When set, the tool will reject new top-level posts after the configured timestamp while still allowing replies until the D2L topic's own due date. Discussions with no `initialPostDue` entry are unaffected.
+
+`discussion-config.js` exposes `resolveDisc`, `discFromTitle`, `getInstructions`, `getInitialPostDue`, and `getDiscOptions`, so the server can be configured for any course without code changes.
 
 ### Content Security Policy
 
