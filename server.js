@@ -68,6 +68,17 @@ if (isDev) {
 
 // Sanitize the optional "pasted" HTML field. Allows common formatting,
 // links, and externally-hosted images while stripping scripts/event handlers.
+const PASTED_MAX_LEN = 1_500_000;
+
+function safeTruncateHtml(html, maxLen) {
+    if (!html || html.length <= maxLen) return html;
+    // Cut at the last complete tag end before the limit so we don't leave
+    // an open or half-finished HTML attribute (e.g. a sliced data URL).
+    const lastClose = html.lastIndexOf('>', maxLen);
+    if (lastClose < 0) return html.substring(0, maxLen);
+    return html.substring(0, lastClose + 1);
+}
+
 function sanitizePastedHtml(raw) {
     if (!raw || typeof raw !== 'string') return '';
     return sanitizeHtml(raw, {
@@ -170,8 +181,8 @@ morgan.token('redacted-url', (req) => {
 });
 app.use(morgan(':method :redacted-url :status :res[content-length] - :response-time ms'));
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const sessionConfig = {
     secret: config.session.secret,
@@ -792,7 +803,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
         }
 
         // Optional pasted references / links / images. Sanitized server-side.
-        const safePasted = sanitizePastedHtml(pasted).substring(0, 50000);
+        const safePasted = safeTruncateHtml(sanitizePastedHtml(pasted), PASTED_MAX_LEN);
 
         // Run AI detection
         let aiResults = null;
@@ -885,8 +896,8 @@ app.post('/api/save-draft', requireAuth, apiLimiter, async (req, res) => {
             contextId: req.session.user.contextId,
             resourceLinkId: req.session.user.resourceLinkId,
             text: typeof text === 'string' ? text.substring(0, 50000) : '',
-            scratchPad: typeof scratchPad === 'string' ? scratchPad.substring(0, 50000) : '',
-            pasted: sanitizePastedHtml(pasted).substring(0, 50000),
+            scratchPad: safeTruncateHtml(sanitizePastedHtml(scratchPad), PASTED_MAX_LEN),
+            pasted: safeTruncateHtml(sanitizePastedHtml(pasted), PASTED_MAX_LEN),
             savedAt: new Date().toISOString()
         };
 
