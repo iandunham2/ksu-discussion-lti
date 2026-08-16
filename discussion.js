@@ -65,6 +65,7 @@ class DiscussionBoard {
         this.addTimelineEvent('session_started', 'Session started');
         this.fetchUserInfo();
         this.setupUIEvents();
+        this.setupPasteImageConversion();
         this.startAutoRefresh();
     }
 
@@ -652,6 +653,69 @@ class DiscussionBoard {
             if (btn) {
                 this.startReply(btn.dataset.replyId, btn.dataset.replyName);
             }
+        });
+    }
+
+    setupPasteImageConversion() {
+        const targets = [this.pasteField, document.getElementById('scratch-pad')].filter(Boolean);
+        targets.forEach(el => {
+            el.addEventListener('paste', (e) => this.handleImagePaste(e, el));
+        });
+    }
+
+    handleImagePaste(e, target) {
+        const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : [];
+
+        // If the clipboard contains an image file, convert it to a data URL directly
+        const imageItem = items.find(item => item.type && item.type.startsWith('image/'));
+        if (imageItem) {
+            e.preventDefault();
+            const file = imageItem.getAsFile();
+            if (!file) return;
+            this.pasteAttempts++;
+            this.addTimelineEvent('pasted_image', `Pasted image (${imageItem.type})`);
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = document.createElement('img');
+                img.src = ev.target.result;
+                img.alt = 'Pasted image';
+                this.insertImageAtCursor(img, target);
+            };
+            reader.readAsDataURL(file);
+            return;
+        }
+
+        // Otherwise, let the browser paste the HTML, then scan for blob:/file: images
+        // and convert them to data URLs so they can be persisted.
+        setTimeout(() => this.convertLocalImagesInElement(target), 0);
+    }
+
+    insertImageAtCursor(img, target) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && (target.contains(sel.anchorNode) || target === sel.anchorNode)) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(img);
+            range.collapse(false);
+        } else {
+            target.appendChild(img);
+        }
+    }
+
+    convertLocalImagesInElement(el) {
+        if (!el) return;
+        el.querySelectorAll('img[src^="blob:"], img[src^="file:"]').forEach(img => {
+            fetch(img.src)
+                .then(res => res.blob())
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => { img.src = e.target.result; };
+                    reader.readAsDataURL(blob);
+                })
+                .catch(err => {
+                    console.error('Could not convert pasted image to data URL:', err);
+                    img.remove();
+                });
         });
     }
 
