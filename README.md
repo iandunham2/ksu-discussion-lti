@@ -25,7 +25,8 @@ An LTI 1.1 discussion board for D2L Brightspace. Student posts are analyzed by t
   - Suspicious refocuses and WPM spikes
 - 🏷️ Per-discussion labels (instructor can rename each module)
 - 🔍 Expandable post detail views
-- ⚡ Dashboard auto-refreshes every 15 seconds
+- ⚡ Manual refresh so grading work is not lost
+- 🏆 Grade passback directly to the D2L gradebook (with feedback)
 
 ## Technology Stack
 
@@ -73,13 +74,34 @@ node server.js
 
 ### Render (free tier)
 
-Use the included `render.yaml` blueprint. Set these in the Render dashboard:
+This is the fastest way to get a public LTI endpoint for D2L.
 
-- `LTI_CONSUMER_KEY`
-- `LTI_CONSUMER_SECRET`
-- `SAPLING_API_KEY`
-- `MONGODB_URI`
-- `SESSION_SECRET` (let Render auto-generate)
+1. **Create a free Render account**
+   - Go to [https://render.com](https://render.com) and sign up with GitHub.
+
+2. **Create a new Web Service from this repo**
+   - In the Render dashboard, click **New + → Web Service**.
+   - Connect the GitHub repository that contains this tool.
+   - Render will detect the `render.yaml` blueprint and set:
+     - **Runtime**: Node
+     - **Build command**: `npm install`
+     - **Start command**: `node server.js`
+
+3. **Set the required environment variables**
+   - In the Render dashboard for the service, go to **Environment → Environment Variables** and add:
+     - `LTI_CONSUMER_KEY` — your LTI 1.1 consumer key
+     - `LTI_CONSUMER_SECRET` — your LTI 1.1 shared secret
+     - `SAPLING_API_KEY` — get a free key from [https://sapling.ai/ai-content-detector](https://sapling.ai/ai-content-detector)
+     - `MONGODB_URI` — a MongoDB Atlas or other MongoDB connection string
+     - `LTI_FRAME_ANCESTORS` — your Brightspace domains (e.g. `https://kennesaw.view.usg.edu,https://*.view.usg.edu`)
+   - Leave `SESSION_SECRET` with **Generate Value** enabled, or set your own.
+
+4. **Deploy and get the URL**
+   - Click **Deploy**. Render will give you a URL like `https://ksu-discussion-lti.onrender.com`.
+   - The LTI launch URL is `https://<your-render-host>/lti/launch`.
+
+5. **D2L course shell setup**
+   - See [`INSTRUCTOR-GUIDE.md`](INSTRUCTOR-GUIDE.md) for step-by-step instructions on registering the tool and adding it to a D2L course.
 
 ## Configuration
 
@@ -164,7 +186,9 @@ LTI_FRAME_ANCESTORS=https://kennesaw.view.usg.edu,https://*.view.usg.edu
 2. The instructor dashboard loads all posts for that course context.
 3. Select a module, thread, or risk level to filter.
 4. Expand any post to see full text, AI probability, and typing analytics.
-5. Click ✏️ Rename to give a discussion link a meaningful display label.
+5. Enter a score (0–100) and optional feedback in the grade panel for each student, then click **Send Grade to D2L**.
+6. Click ✏️ Rename to give a discussion link a meaningful display label.
+7. Use **Refresh** to load new posts; the dashboard no longer auto-refreshes so grading work is not lost.
 
 ### Risk Scoring
 
@@ -182,6 +206,7 @@ LTI_FRAME_ANCESTORS=https://kennesaw.view.usg.edu,https://*.view.usg.edu
 - 👥 Role-based access control (Student/Instructor from LTI roles)
 - 📝 Redacted, timestamped logging via `d2l-shared`
 - 🗄️ MongoDB with authentication
+- 🔑 Short-lived `X-LTI-Token` fallback for Safari ITP / third-party cookie blocking
 
 ## API Endpoints
 
@@ -197,15 +222,19 @@ LTI_FRAME_ANCESTORS=https://kennesaw.view.usg.edu,https://*.view.usg.edu
 
 - `GET /instructor.html` — Instructor dashboard (instructor only)
 - `GET /api/instructor/posts` — Get posts for the course (instructor only)
-- `POST /api/instructor/grade` — Send a grade back to D2L (instructor only)
-- `POST /api/instructor/discussion-label` — Rename a discussion link (instructor only)
-- `POST /api/instructor/discussion-instructions` — Update instructions for a discussion (instructor only)
+- `GET /api/instructor/disc-list` — List discussion keys that have posts, with instructor labels (instructor only)
+- `POST /api/instructor/set-disc` — Set the active discussion for the instructor session
+- `POST /api/instructor/grade` — Send a score and feedback to the D2L gradebook (instructor only)
+- `POST /api/instructor/discussion-label` — Rename a discussion link and/or update its instructions (instructor only)
+- `POST /api/instructor/set-instructions` — Pre-populate instructions before any posts exist (instructor only)
 
 ### Other Endpoints
 
-- `GET /health` — Render health check
+- `GET /health` — Render health check (returns `version`, `commit`, `nodeEnv`, and `timestamp`)
+- `GET /api/session-check` — Check whether the current session/token is authenticated
 - `GET /` — Dev mode landing page
 - `POST /lti/launch` — LTI 1.1 launch handler
+- `POST /api/client-error` — Client-side error logging endpoint
 
 ## Monitoring
 
@@ -238,6 +267,14 @@ See [`INSTRUCTOR-GUIDE.md`](INSTRUCTOR-GUIDE.md) for instructor-facing issues an
 - Verify `SAPLING_API_KEY` is set.
 - Posts shorter than ~50 characters are not sent to Sapling.
 
+**Grade passback shows "Grade passback not available for this student"**
+- The student must launch the same LTI link at least once before a grade can be sent.
+- The LTI link in D2L must be associated with a grade item so D2L sends the `lis_outcome_service_url`.
+
+**Instructor UI works in Chrome but not Safari**
+- Safari's Intelligent Tracking Prevention (ITP) can block session cookies inside a D2L iframe.
+- The app falls back to an `X-LTI-Token` header, so most Safari users still work, but if the launch URL token is stripped by a browser extension or redirect, relaunch from D2L.
+
 ## License
 
 MIT License — See the LICENSE file for details.
@@ -251,5 +288,5 @@ For technical support or questions:
 
 ---
 
-**Version**: 2.3.9  
-**Last Updated**: August 5, 2026  
+**Version**: 2.5.9  
+**Last Updated**: August 25, 2026  

@@ -18,7 +18,7 @@ For instructor-facing usage, see `INSTRUCTOR-GUIDE.md`.
 - **Auth**: LTI 1.1 launch (`POST /lti/launch`), OAuth 1.0 signature validation
 
 ### Environment variables (`.env`)
-`NODE_ENV`, `PORT`, `LTI_CONSUMER_KEY`, `LTI_CONSUMER_SECRET`, `SAPLING_API_KEY`, `MONGODB_URI`, `SESSION_SECRET`
+`NODE_ENV`, `PORT`, `LTI_CONSUMER_KEY`, `LTI_CONSUMER_SECRET`, `SAPLING_API_KEY`, `MONGODB_URI`, `SESSION_SECRET`, `LTI_FRAME_ANCESTORS`
 
 ---
 
@@ -58,6 +58,22 @@ by the instructor (see `discussionLabels` below).
 - **`discussionLabels`** — instructor-defined display names per discussion
   - `{ resourceLinkId (unique), contextTitle, label, updatedAt }`
 - **`sessions`** — express-session store (connect-mongo)
+- **`passbackLog`** — failed/successful LTI grade passback attempts for debugging
+
+---
+
+## Sessions and Safari ITP fallback
+
+`express-session` stores the LTI launch in a cookie. iOS Safari and some other browsers
+block third-party cookies in cross-site iframes, so after launch the server also issues a
+short-lived token and embeds it in the redirect URL query string.
+
+- Client JS reads the `?token=` parameter on `discussion.html` and `instructor.html` and
+  sends it as the `X-LTI-Token` header on every `fetch`.
+- `requireAuth` checks `req.session.user` first, then falls back to `req.headers['x-lti-token']`
+  and looks it up in the in-memory `ltiTokenStore`.
+- Static HTML/JS files are served with `Cache-Control: no-store` so updates reach the iframe
+  immediately after deploy.
 
 ---
 
@@ -99,6 +115,21 @@ when they were all posted through a single link.
 ---
 
 ## Change log
+
+### 2026-08-25
+- Added LTI 1.1 grade passback (`POST /api/instructor/grade`) using `ims-lti` OutcomeService.
+  - Signs with the `oauth_consumer_key` D2L sent at launch.
+  - Parses D2L's `imsx` XML response and surfaces `codeMajor/codeMinor/description` in the UI.
+  - Stores grade/feedback/gradedAt on matching student posts.
+  - Failed passbacks are logged to the `passbackLog` collection.
+- Added `X-LTI-Token` header fallback to support Safari ITP / third-party cookie blocking.
+- Added client-side error reporting (`POST /api/client-error`) for iframe JS diagnostics.
+- Disabled static file caching for `instructor.html` and `discussion.html` after deploys.
+- Removed the 15-second instructor dashboard auto-refresh; grades are now submitted via
+delegated event listeners and a manual Refresh button.
+- `/health` now returns `version`, `commit` (from `RENDER_GIT_COMMIT`), and `nodeEnv`.
+- Added `ment4424-demo-launch.html` for MENT 4424 dev-mode testing.
+- Version bumped to 2.5.9.
 
 ### 2026-06-15
 - Instructor dashboard now groups by course (`contextTitle`) instead of `context_id`.

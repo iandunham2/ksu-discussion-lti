@@ -33,3 +33,10 @@ Thumbs.db
 # Backups
 backups/
 *.backup
+
+# Temporary / ad-hoc course scripts and data exports
+.tmp-*.mjs
+_*.mjs
+_*.json
+_*.txt
+*.csv

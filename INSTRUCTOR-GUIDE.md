@@ -30,6 +30,7 @@ Use this checklist when adding the tool to a course that has not used it before.
      - **Key**: `LTI_CONSUMER_KEY`
      - **Secret**: `LTI_CONSUMER_SECRET`
      - **Security Settings**: enable LTI user ID, role list, user name, user email, and course information.
+     - **Send LIS outcome service URL / allow grade sync** (wording varies by D2L theme): make sure the tool can receive grade passback so the gradebook integration works.
 
 3. **Place the link in one or more modules.**
    - Content → Module → **Existing Activities → External Learning Tools → AI-Monitored Discussion**.
@@ -40,10 +41,15 @@ Use this checklist when adding the tool to a course that has not used it before.
    - **Alternative**: add a `custom_disc` parameter to the link.
    - If neither is set, students will pick from a list on first launch.
 
-5. **Add instructions above each link** (optional).
+5. **Create a grade item for each discussion (optional but recommended).**
+   - In the D2L gradebook, create a new grade item for the discussion.
+   - When you add the discussion link to the module, choose the grade item in the **Assessment** tab.
+   - This lets the instructor dashboard send scores directly back to the D2L gradebook.
+
+6. **Add instructions above each link** (optional).
    - Create an HTML document or description with the prompt and requirements.
 
-6. **Verify instructor access.**
+7. **Verify instructor access.**
    - Launch the link while enrolled as an instructor.
    - Confirm you see the Instructor Dashboard and the correct module filter.
 
@@ -188,7 +194,7 @@ When you (the instructor) click the discussion link in a module:
      - Typing analytics: correction ratio, suspicious refocuses, WPM spikes, injection attempts
      - Full post text
      - Post type (original post vs. reply)
-5. Dashboard auto-refreshes every 15 seconds
+5. Click **Refresh** at any time to load new posts (the dashboard does not auto-refresh, so grading work is not lost)
 
 ### Risk Score Breakdown
 
@@ -212,6 +218,25 @@ When you (the instructor) click the discussion link in a module:
 
 ---
 
+## Grading from the Dashboard
+
+Each student card has a **Grade Student** panel at the bottom.
+
+1. Expand the student card (click the header).
+2. Enter a **Score (0–100)**.
+3. Enter optional **Feedback**.
+4. Click **Send Grade to D2L**.
+5. A status message appears below the button:
+   - **Success**: the score and feedback have been written to the D2L gradebook.
+   - **Error**: the real D2L error message is shown (e.g., the grade item is not set up, or the student has not launched the link).
+
+**Requirements for grade passback to work:**
+- The LTI link in D2L must be associated with a grade item (so D2L sends `lis_outcome_service_url`).
+- The student must launch the link at least once (so the tool has their result sourced ID).
+- The score must be a whole number between 0 and 100.
+
+---
+
 ## Example Module Setup
 
 Here is an example of a fully configured module:
@@ -231,6 +256,15 @@ Module 1: Introduction & RAW Photography Fundamentals
 
 ### "502 Bad Gateway" on first click
 The free hosting tier sleeps after 15 minutes of inactivity. Wait 30-50 seconds and refresh. Once awake, it stays up as long as students are using it.
+
+### "Failed to send grade to D2L" or "Grade passback not available for this student"
+- Make sure the LTI link is associated with a grade item in the D2L module.
+- Make sure the student has launched the link at least once before you try to grade them.
+- The D2L error message in the status text (e.g., a bad sourced ID) will tell you exactly what D2L rejected.
+
+### Some students or instructors see "Not authenticated" in Safari
+- Safari's Intelligent Tracking Prevention can block the session cookie inside the D2L iframe.
+- The app uses an `X-LTI-Token` fallback, but if the launch URL is modified by a browser extension or the token is lost, the user should close the tool and relaunch it from D2L.
 
 ### Students see "LTI launch validation failed"
 Make sure the Consumer Key and Secret in D2L match the values configured in the tool:
@@ -255,7 +289,15 @@ This should not happen. Each module placement gets a unique `resource_link_id` f
 |--------|-----|
 | Add discussion to a module | Content → Module → Existing Activities → External Learning Tools → AI-Monitored Discussion |
 | Use a new link per assignment | Repeat the step above for each discussion (don't reuse one link) |
+| Create a grade item | D2L Grades → New Grade Item, then associate it with the LTI link in the module |
+| Enter a grade | Expand a student card in the dashboard, type a score/feedback, click **Send Grade to D2L** |
 | Rename a module in the dashboard | Select a Module → click ✏️ Rename → type a name |
 | Rename the discussion in D2L | Click dropdown arrow → Edit Properties In-place → change title |
 | View student posts + AI scores | Click the discussion link as an instructor |
+| Refresh the dashboard | Click **Refresh** (the dashboard does not auto-refresh) |
 | Test as a student | Use the dev/test login URL supplied by your tool administrator (not available in production). |
+
+---
+
+**Version**: 2.5.9  
+**Last Updated**: August 25, 2026
