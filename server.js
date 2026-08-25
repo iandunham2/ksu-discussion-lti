@@ -592,6 +592,12 @@ app.get('/api/session-check', (req, res) => {
     res.json({ authenticated: !!(req.session && req.session.userId) });
 });
 
+// Client-side error logging from the LTI UI (no auth required; only used for diagnostics)
+app.post('/api/client-error', express.json({ limit: '100kb' }), (req, res) => {
+    log.error('Client-side error reported:', JSON.stringify(req.body));
+    res.status(200).end();
+});
+
 app.get('/health', (req, res) => {
     res.status(200).json({
         status: 'ok',

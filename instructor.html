@@ -439,12 +439,36 @@
     </div>
 
     <script>
+        window.addEventListener('error', (e) => {
+            try {
+                fetch('/api/client-error', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: e.message,
+                        source: e.filename,
+                        line: e.lineno,
+                        col: e.colno,
+                        error: e.error && e.error.stack ? e.error.stack : String(e.error)
+                    })
+                }).catch(() => {});
+            } catch (_) {}
+        });
+
         const expandedStudents = new Set();
         const expandedPosts = new Set();
         let allSubmissions = [];
         let allModules = [];
 
         const ltiToken = new URLSearchParams(window.location.search).get('lti_token') || '';
+
+        function escapeJs(str) {
+            return String(str).replace(/[\\'"]/g, '\\$&');
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+        }
 
         async function apiFetch(url, options = {}) {
             options.headers = options.headers || {};
@@ -891,30 +915,30 @@
 
                 return `
                     <div class="student-card ${risk}-risk">
-                        <div class="student-header" data-sid="${sid}">
+                        <div class="student-header" data-sid="${escapeHtml(sid)}">
                             <div>
-                                <div class="student-name">${student.authorName}</div>
-                                <div class="student-meta">${student.authorEmail} &bull; ${student.posts.length} submission${student.posts.length !== 1 ? 's' : ''}</div>
+                                <div class="student-name">${escapeHtml(student.authorName)}</div>
+                                <div class="student-meta">${escapeHtml(student.authorEmail)} &bull; ${student.posts.length} submission${student.posts.length !== 1 ? 's' : ''}</div>
                             </div>
                             <div class="student-header-right">
                                 <span class="risk-badge ${risk}">${risk.toUpperCase()} RISK</span>
-                                <span class="chevron" id="chevron-${sid}">▶</span>
+                                <span class="chevron" id="chevron-${escapeHtml(sid)}">▶</span>
                             </div>
                         </div>
-                        <div class="student-body" id="student-body-${sid}">
+                        <div class="student-body" id="student-body-${escapeHtml(sid)}">
                             ${postsHtml}
                             <div class="grade-panel">
                                 <h4>Grade Student${gradeLabel}</h4>
                                 <div class="grade-panel-inputs">
                                     <label>Score (0–100):</label>
-                                    <input type="number" id="grade-input-${sid}" min="0" max="100" value="${student.grade != null ? student.grade : ''}">
+                                    <input type="number" id="grade-input-${escapeHtml(sid)}" min="0" max="100" value="${student.grade != null ? student.grade : ''}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitGrade('${escapeJs(student.authorId)}','${escapeJs(sid)}');}">
                                     <label>Feedback:</label>
-                                    <input type="text" id="feedback-input-${sid}" placeholder="Optional feedback" value="${student.gradeFeedback || ''}">
-                                    <button class="grade-submit-btn" onclick="submitGrade('${student.authorId}', '${sid}')">
+                                    <input type="text" id="feedback-input-${escapeHtml(sid)}" placeholder="Optional feedback" value="${student.gradeFeedback || ''}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitGrade('${escapeJs(student.authorId)}','${escapeJs(sid)}');}">
+                                    <button class="grade-submit-btn" onclick="submitGrade('${escapeJs(student.authorId)}', '${escapeJs(sid)}')">
                                         Send Grade to D2L
                                     </button>
                                 </div>
-                                <div class="grade-status" id="grade-status-${sid}"></div>
+                                <div class="grade-status" id="grade-status-${escapeHtml(sid)}"></div>
                                 ${gradedAtHtml}
                             </div>
                         </div>
