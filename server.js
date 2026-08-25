@@ -1372,6 +1372,9 @@ if (isDev) {
 app.get('/:file', (req, res, next) => {
     const file = req.params.file;
     if (allowedFiles.includes(file)) {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
         return res.sendFile(path.join(__dirname, file));
     }
     next();

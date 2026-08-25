@@ -444,14 +444,23 @@
         let allSubmissions = [];
         let allModules = [];
 
+        const ltiToken = new URLSearchParams(window.location.search).get('lti_token') || '';
+
+        async function apiFetch(url, options = {}) {
+            options.headers = options.headers || {};
+            options.headers['X-LTI-Token'] = ltiToken;
+            if (!options.credentials) options.credentials = 'same-origin';
+            return fetch(url, options);
+        }
+
         async function loadDiscList() {
             const sel = document.getElementById('disc-select');
             const loading = document.getElementById('disc-loading');
             loading.style.display = 'inline';
             try {
                 const [listR, userR] = await Promise.all([
-                    fetch('/api/instructor/disc-list'),
-                    fetch('/api/user')
+                    apiFetch('/api/instructor/disc-list'),
+                    apiFetch('/api/user')
                 ]);
                 const list = await listR.json();
                 const user = await userR.json();
@@ -480,7 +489,7 @@
 
         async function switchDisc() {
             const disc = document.getElementById('disc-select').value;
-            await fetch('/api/instructor/set-disc', {
+            await apiFetch('/api/instructor/set-disc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ disc: disc || null })
@@ -495,7 +504,7 @@
 
         async function loadSubmissions() {
             try {
-                const response = await fetch('/api/instructor/posts');
+                const response = await apiFetch('/api/instructor/posts');
                 const submissions = await response.json();
                 allSubmissions = submissions;
                 
@@ -605,7 +614,7 @@
             const newName = prompt('Enter a name for this discussion (module):', current ? current.title : '');
             if (!newName || !newName.trim()) return;
             try {
-                const res = await fetch('/api/instructor/discussion-label', {
+                const res = await apiFetch('/api/instructor/discussion-label', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ resourceLinkId: currentModuleFilter, label: newName.trim() })
@@ -1093,7 +1102,7 @@
             statusDiv.innerHTML = '<span style="color: #666;">Sending grade to D2L...</span>';
 
             try {
-                const response = await fetch('/api/instructor/grade', {
+                const response = await apiFetch('/api/instructor/grade', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ authorId, score, feedback: feedbackInput.value || '' })
@@ -1113,7 +1122,7 @@
         // Fetch context info
         async function loadContext() {
             try {
-                const response = await fetch('/api/user');
+                const response = await apiFetch('/api/user');
                 if (response.ok) {
                     const user = await response.json();
                     document.getElementById('context-subtitle').textContent =
