@@ -101,7 +101,7 @@ function sanitizePastedHtml(raw) {
 // DATABASE SETUP
 // ======================
 
-let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection, discMappingsCollection;
+let db, postsCollection, draftsCollection, outcomesCollection, discussionLabelsCollection, discMappingsCollection, passbackLogCollection;
 const mongoClient = new MongoClient(config.mongodb.uri, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 5000
@@ -116,6 +116,7 @@ async function connectDatabase() {
         outcomesCollection = db.collection('outcomes');
         discussionLabelsCollection = db.collection('discussionLabels');
         discMappingsCollection = db.collection('discMappings');
+        passbackLogCollection = db.collection('passbackLog');
 
         await postsCollection.createIndex({ contextId: 1, timestamp: -1 });
         await postsCollection.createIndex({ resourceLinkId: 1, timestamp: -1 });
@@ -125,6 +126,7 @@ async function connectDatabase() {
         await outcomesCollection.createIndex({ userId: 1, resourceLinkId: 1 }, { unique: true });
         await discussionLabelsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
         await discMappingsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
+        await passbackLogCollection.createIndex({ at: -1 });
 
         log.info('✅ MongoDB connected');
     } catch (error) {
@@ -435,6 +437,9 @@ app.post('/lti/launch', (req, res) => {
                 resourceLinkId: ltiData.resourceLinkId,
                 outcomeServiceUrl: ltiData.outcomeServiceUrl,
                 resultSourcedId: ltiData.resultSourcedId,
+                // LTI 1.1 requires service calls to be signed with the same
+                // consumer key the Tool Consumer used for the launch.
+                consumerKey: ltiData.consumerKey,
                 updatedAt: new Date().toISOString()
             };
             if (outcomesCollection) {
@@ -588,7 +593,13 @@ app.get('/api/session-check', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.status(200).json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        version: require('./package.json').version,
+        commit: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || null,
+        nodeEnv: process.env.NODE_ENV || null
+    });
 });
 
 // Dev-mode direct login (no LTI needed)
@@ -1166,14 +1177,39 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
 
         // Send grade to D2L via LTI Outcomes Service
         const normalizedScore = score / 100; // LTI expects 0.0-1.0
-        const { success, error } = await sendLTIGrade(
+        const result = await sendLTIGrade(
             outcomesData.outcomeServiceUrl,
             outcomesData.resultSourcedId,
-            normalizedScore
+            normalizedScore,
+            outcomesData.consumerKey
         );
 
-        if (!success) {
-            return res.status(500).json({ error: error || 'Failed to send grade to D2L. Please try again.' });
+        if (!result.success) {
+            log.error('LTI grade passback failed:', JSON.stringify({
+                httpStatus: result.statusCode,
+                codeMajor: result.codeMajor,
+                codeMinor: result.codeMinor,
+                description: result.description
+            }));
+            if (passbackLogCollection) {
+                await passbackLogCollection.insertOne({
+                    at: new Date().toISOString(),
+                    authorId,
+                    disc: disc || null,
+                    instructorResourceLinkId: resourceLinkId,
+                    studentResourceLinkId: outcomesData.resourceLinkId,
+                    outcomeServiceUrl: outcomesData.outcomeServiceUrl,
+                    consumerKeyUsed: outcomesData.consumerKey || config.lti.consumerKey,
+                    score,
+                    httpStatus: result.statusCode,
+                    codeMajor: result.codeMajor,
+                    codeMinor: result.codeMinor,
+                    description: result.description,
+                    raw: result.raw
+                }).catch(() => {});
+            }
+            const detail = result.description ? ` D2L said: "${result.description}".` : '';
+            return res.status(500).json({ error: `Failed to send grade to D2L.${detail}` });
         }
 
         // Store grade locally on the student's posts for this discussion. Match by disc when
@@ -1197,28 +1233,130 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
     }
 });
 
-function sendLTIGrade(serviceUrl, sourcedId, score) {
+// Builds a signed LTI 1.1 Basic Outcomes request and returns D2L's parsed response.
+// Signing uses ims-lti's HMAC_SHA1 helper so the OAuth base string (including
+// oauth_body_hash and any query parameters on the service URL) matches the spec.
+function sendOutcomeRequest({ serviceUrl, sourcedId, consumerKey, operation, score }) {
     return new Promise((resolve) => {
-        try {
-            const service = new lti.OutcomeService({
-                consumer_key: config.lti.consumerKey,
-                consumer_secret: config.lti.consumerSecret,
-                service_url: serviceUrl,
-                source_did: sourcedId,
-            });
+        const https = require('https');
+        const http = require('http');
+        const url = require('url');
+        const xml2js = require('xml2js');
+        const HMAC_SHA1 = require('ims-lti/lib/hmac-sha1');
+        const ltiUtils = require('ims-lti/lib/utils');
 
-            service.send_replace_result(score, (err, result) => {
-                if (err) {
-                    log.error('LTI grade passback failed:', err.message);
-                    resolve({ success: false, error: err.message });
-                } else {
-                    resolve({ success: result === true });
-                }
+        const key = consumerKey || config.lti.consumerKey;
+        const messageId = crypto.randomBytes(16).toString('hex');
+        const resultXml = operation === 'replaceResult'
+            ? `
+        <result>
+          <resultScore>
+            <language>en</language>
+            <textString>${score}</textString>
+          </resultScore>
+        </result>`
+            : '';
+
+        const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
+<imsx_POXEnvelopeRequest xmlns="http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0">
+  <imsx_POXHeader>
+    <imsx_POXRequestHeaderInfo>
+      <imsx_version>V1.0</imsx_version>
+      <imsx_messageIdentifier>${messageId}</imsx_messageIdentifier>
+    </imsx_POXRequestHeaderInfo>
+  </imsx_POXHeader>
+  <imsx_POXBody>
+    <${operation}Request>
+      <resultRecord>
+        <sourcedGUID>
+          <sourcedId>${escapeXml(sourcedId)}</sourcedId>
+        </sourcedGUID>${resultXml}
+      </resultRecord>
+    </${operation}Request>
+  </imsx_POXBody>
+</imsx_POXEnvelopeRequest>`;
+
+        const parts = url.parse(serviceUrl, true);
+        const oauthUrl = parts.protocol + '//' + parts.host + parts.pathname;
+
+        const oauthParams = {
+            oauth_version: '1.0',
+            oauth_nonce: crypto.randomBytes(16).toString('hex'),
+            oauth_timestamp: Math.round(Date.now() / 1000),
+            oauth_consumer_key: key,
+            oauth_body_hash: crypto.createHash('sha1').update(xmlBody).digest('base64'),
+            oauth_signature_method: 'HMAC-SHA1'
+        };
+        oauthParams.oauth_signature = new HMAC_SHA1().build_signature_raw(
+            oauthUrl, parts, 'POST', oauthParams, config.lti.consumerSecret
+        );
+
+        const authHeader = 'OAuth realm="",' + Object.entries(oauthParams)
+            .map(([k, v]) => `${k}="${ltiUtils.special_encode(v)}"`).join(',');
+
+        const transport = parts.protocol === 'https:' ? https : http;
+        const apiReq = transport.request({
+            hostname: parts.hostname,
+            port: parts.port,
+            path: parts.path,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/xml',
+                'Content-Length': Buffer.byteLength(xmlBody),
+                'Authorization': authHeader
+            }
+        }, (apiRes) => {
+            let raw = '';
+            apiRes.setEncoding('utf8');
+            apiRes.on('data', (chunk) => { raw += chunk; });
+            apiRes.on('end', () => {
+                xml2js.parseString(raw, { trim: true }, (err, parsed) => {
+                    const nav = (obj, path) => {
+                        for (const part of path.split('.')) obj = obj && obj[part] && obj[part][0];
+                        return obj;
+                    };
+                    const envelope = parsed && parsed.imsx_POXEnvelopeResponse;
+                    const statusPath = 'imsx_POXHeader.imsx_POXResponseHeaderInfo.imsx_statusInfo';
+                    const codeMajor = nav(envelope, `${statusPath}.imsx_codeMajor`);
+                    const description = nav(envelope, `${statusPath}.imsx_description`);
+                    const codeMinor = nav(envelope, `${statusPath}.imsx_codeMinor.imsx_codeMinorField.imsx_codeMinorFieldValue`);
+                    resolve({
+                        success: codeMajor === 'success' && apiRes.statusCode >= 200 && apiRes.statusCode < 300,
+                        statusCode: apiRes.statusCode,
+                        codeMajor: codeMajor || null,
+                        codeMinor: codeMinor || null,
+                        description: description || (err ? 'Invalid XML in response' : null),
+                        raw: raw.slice(0, 2000)
+                    });
+                });
             });
-        } catch (err) {
-            log.error('LTI grade passback setup error:', err.message);
-            resolve({ success: false, error: err.message });
-        }
+        });
+
+        apiReq.on('error', (e) => {
+            resolve({ success: false, statusCode: 0, codeMajor: null, codeMinor: null, description: e.message, raw: '' });
+        });
+        apiReq.setTimeout(15000, () => {
+            apiReq.destroy();
+            resolve({ success: false, statusCode: 0, codeMajor: null, codeMinor: null, description: 'Timed out contacting D2L', raw: '' });
+        });
+        apiReq.write(xmlBody);
+        apiReq.end();
+    });
+}
+
+function escapeXml(str) {
+    return String(str).replace(/[<>&'"]/g, (c) => (
+        { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]
+    ));
+}
+
+function sendLTIGrade(serviceUrl, sourcedId, score, consumerKey) {
+    return sendOutcomeRequest({
+        serviceUrl,
+        sourcedId,
+        consumerKey,
+        operation: 'replaceResult',
+        score: score.toFixed(4)
     });
 }
 
