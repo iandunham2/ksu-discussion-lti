@@ -1166,14 +1166,14 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
 
         // Send grade to D2L via LTI Outcomes Service
         const normalizedScore = score / 100; // LTI expects 0.0-1.0
-        const success = await sendLTIGrade(
+        const { success, error } = await sendLTIGrade(
             outcomesData.outcomeServiceUrl,
             outcomesData.resultSourcedId,
             normalizedScore
         );
 
         if (!success) {
-            return res.status(500).json({ error: 'Failed to send grade to D2L. Please try again.' });
+            return res.status(500).json({ error: error || 'Failed to send grade to D2L. Please try again.' });
         }
 
         // Store grade locally on the student's posts for this discussion. Match by disc when
@@ -1199,97 +1199,26 @@ app.post('/api/instructor/grade', requireInstructor, async (req, res) => {
 
 function sendLTIGrade(serviceUrl, sourcedId, score) {
     return new Promise((resolve) => {
-        const oauthSign = require('oauth-sign');
-        const https = require('https');
-        const http = require('http');
-        const url = require('url');
-
-        const messageId = crypto.randomBytes(16).toString('hex');
-        const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
-<imsx_POXEnvelopeRequest xmlns="http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0">
-  <imsx_POXHeader>
-    <imsx_POXRequestHeaderInfo>
-      <imsx_version>V1.0</imsx_version>
-      <imsx_messageIdentifier>${messageId}</imsx_messageIdentifier>
-    </imsx_POXRequestHeaderInfo>
-  </imsx_POXHeader>
-  <imsx_POXBody>
-    <replaceResultRequest>
-      <resultRecord>
-        <sourcedGUID>
-          <sourcedId>${sourcedId}</sourcedId>
-        </sourcedGUID>
-        <result>
-          <resultScore>
-            <language>en</language>
-            <textString>${score.toFixed(4)}</textString>
-          </resultScore>
-        </result>
-      </resultRecord>
-    </replaceResultRequest>
-  </imsx_POXBody>
-</imsx_POXEnvelopeRequest>`;
-
-        const parsedUrl = url.parse(serviceUrl);
-        const timestamp = Math.floor(Date.now() / 1000);
-        const nonce = crypto.randomBytes(16).toString('hex');
-
-        const oauthParams = {
-            oauth_consumer_key: config.lti.consumerKey,
-            oauth_nonce: nonce,
-            oauth_signature_method: 'HMAC-SHA1',
-            oauth_timestamp: timestamp,
-            oauth_version: '1.0',
-            oauth_body_hash: crypto.createHash('sha1').update(xmlBody).digest('base64')
-        };
-
-        const signature = oauthSign.hmacsign(
-            'POST',
-            serviceUrl,
-            oauthParams,
-            config.lti.consumerSecret
-        );
-
-        const authHeader = `OAuth oauth_consumer_key="${encodeURIComponent(oauthParams.oauth_consumer_key)}",` +
-            `oauth_nonce="${encodeURIComponent(nonce)}",` +
-            `oauth_signature="${encodeURIComponent(signature)}",` +
-            `oauth_signature_method="HMAC-SHA1",` +
-            `oauth_timestamp="${timestamp}",` +
-            `oauth_version="1.0",` +
-            `oauth_body_hash="${encodeURIComponent(oauthParams.oauth_body_hash)}"`;
-
-        const options = {
-            hostname: parsedUrl.hostname,
-            port: parsedUrl.port,
-            path: parsedUrl.path,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/xml',
-                'Content-Length': Buffer.byteLength(xmlBody),
-                'Authorization': authHeader
-            }
-        };
-
-        const transport = parsedUrl.protocol === 'https:' ? https : http;
-        const apiReq = transport.request(options, (apiRes) => {
-            let data = '';
-            apiRes.on('data', chunk => data += chunk);
-            apiRes.on('end', () => {
-                const success = data.includes('success') && apiRes.statusCode >= 200 && apiRes.statusCode < 300;
-                if (!success) {
-                    log.error('LTI grade passback failed:', apiRes.statusCode, data.substring(0, 500));
-                }
-                resolve(success);
+        try {
+            const service = new lti.OutcomeService({
+                consumer_key: config.lti.consumerKey,
+                consumer_secret: config.lti.consumerSecret,
+                service_url: serviceUrl,
+                source_did: sourcedId,
             });
-        });
 
-        apiReq.on('error', (e) => {
-            log.error('LTI grade passback error:', e.message);
-            resolve(false);
-        });
-        apiReq.setTimeout(15000, () => { apiReq.destroy(); resolve(false); });
-        apiReq.write(xmlBody);
-        apiReq.end();
+            service.send_replace_result(score, (err, result) => {
+                if (err) {
+                    log.error('LTI grade passback failed:', err.message);
+                    resolve({ success: false, error: err.message });
+                } else {
+                    resolve({ success: result === true });
+                }
+            });
+        } catch (err) {
+            log.error('LTI grade passback setup error:', err.message);
+            resolve({ success: false, error: err.message });
+        }
     });
 }
 
@@ -1299,7 +1228,7 @@ function sendLTIGrade(serviceUrl, sourcedId, score) {
 
 const allowedFiles = ['discussion.html', 'instructor.html', 'pick-discussion.html', 'styles.css', 'script.js', 'discussion.js'];
 if (isDev) {
-    allowedFiles.push('test-launch.html');
+    allowedFiles.push('test-launch.html', 'ment4424-demo-launch.html');
 }
 
 app.get('/:file', (req, res, next) => {
