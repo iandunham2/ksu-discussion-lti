@@ -931,10 +931,10 @@
                                 <h4>Grade Student${gradeLabel}</h4>
                                 <div class="grade-panel-inputs">
                                     <label>Score (0–100):</label>
-                                    <input type="number" id="grade-input-${escapeHtml(sid)}" min="0" max="100" value="${student.grade != null ? student.grade : ''}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitGrade('${escapeJs(student.authorId)}','${escapeJs(sid)}');}">
+                                    <input type="number" class="grade-input" data-sid="${escapeHtml(sid)}" id="grade-input-${escapeHtml(sid)}" min="0" max="100" value="${student.grade != null ? student.grade : ''}">
                                     <label>Feedback:</label>
-                                    <input type="text" id="feedback-input-${escapeHtml(sid)}" placeholder="Optional feedback" value="${student.gradeFeedback || ''}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitGrade('${escapeJs(student.authorId)}','${escapeJs(sid)}');}">
-                                    <button class="grade-submit-btn" onclick="submitGrade('${escapeJs(student.authorId)}', '${escapeJs(sid)}')">
+                                    <input type="text" class="grade-feedback" data-sid="${escapeHtml(sid)}" id="feedback-input-${escapeHtml(sid)}" placeholder="Optional feedback" value="${student.gradeFeedback || ''}">
+                                    <button class="grade-submit-btn" data-author-id="${escapeHtml(student.authorId)}" data-sid="${escapeHtml(sid)}">
                                         Send Grade to D2L
                                     </button>
                                 </div>
@@ -1155,10 +1155,7 @@
             } catch (e) {}
         }
 
-        // Auto-refresh every 15 seconds
-        setInterval(loadSubmissions, 15000);
-
-        // Delegate clicks on student headers and post "View Full Details" buttons.
+        // Delegate clicks on student headers, grade buttons, and post "View Full Details" buttons.
         document.getElementById('submissions-list').addEventListener('click', (e) => {
             const header = e.target.closest('.student-header');
             if (header) {
@@ -1170,9 +1167,29 @@
             if (expandBtn) {
                 const key = expandBtn.dataset.postKey;
                 if (key) togglePost(key);
+                return;
+            }
+            const gradeBtn = e.target.closest('.grade-submit-btn');
+            if (gradeBtn) {
+                const authorId = gradeBtn.dataset.authorId;
+                const sid = gradeBtn.dataset.sid;
+                if (authorId && sid) submitGrade(authorId, sid);
+                return;
             }
         });
-        
+
+        // Submit on Enter key in the score or feedback input
+        document.getElementById('submissions-list').addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            const input = e.target.closest('.grade-input, .grade-feedback');
+            if (!input) return;
+            e.preventDefault();
+            const sid = input.dataset.sid;
+            if (!sid) return;
+            const btn = input.closest('.grade-panel').querySelector('.grade-submit-btn');
+            if (btn && btn.dataset.authorId) submitGrade(btn.dataset.authorId, sid);
+        });
+
         // Load on page load
         loadContext();
         loadSubmissions();
