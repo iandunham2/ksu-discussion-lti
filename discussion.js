@@ -31,6 +31,12 @@ class DiscussionBoard {
         }
         this.ltiToken = sessionStorage.getItem('lti_token') || null;
 
+        // Keep the LTI token alive while the user is actively composing
+        this.lastUserActivity = Date.now();
+        this.lastKeepAlive = 0;
+        this.keepAliveIntervalMs = 5 * 60 * 1000; // ping at most every 5 minutes
+        this.keepAliveInactivityMs = 2 * 60 * 1000; // only ping if active within 2 minutes
+
         // Typing analytics
         this.keystrokeCounter = 0;
         this.pasteAttempts = 0;
@@ -38,6 +44,8 @@ class DiscussionBoard {
         this.recentKeystrokeTimestamps = [];
         this.lastKnownLength = 0;
         this.lastKnownLengthAtBlur = 0;
+        this.allowedSnapshot = this.editor ? this.editor.innerHTML : '';
+        this.isComposing = false;
 
         this.typingAnalytics = {
             lastKeystrokeTime: null,
@@ -67,6 +75,7 @@ class DiscussionBoard {
         this.setupUIEvents();
         this.setupPasteImageConversion();
         this.startAutoRefresh();
+        this.startKeepAlive();
     }
 
     // ======================
@@ -96,6 +105,7 @@ class DiscussionBoard {
                 this.refreshSubmitState();
                 this.loadPosts();
                 this.loadDraft();
+                this.pingKeepAlive();
             } else {
                 this.userInfoDisplay.innerHTML = '<span style="color:#FFC72C;">Please launch from D2L</span>';
                 this.submitPostBtn.disabled = true;
@@ -332,6 +342,9 @@ class DiscussionBoard {
         this.sessionStartMs = Date.now();
         this.recentKeystrokeTimestamps = [];
         this.lastKnownLength = 0;
+        this.lastKnownLengthAtBlur = 0;
+        this.allowedSnapshot = this.editor ? this.editor.innerHTML : '';
+        this.isComposing = false;
         this.typingAnalytics = {
             lastKeystrokeTime: null,
             interKeystrokeDelays: [],
@@ -373,6 +386,7 @@ class DiscussionBoard {
 
     setupEditorEvents() {
         this.editor.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        this.editor.addEventListener('beforeinput', (e) => this.handleBeforeInput(e));
         this.editor.addEventListener('input', (e) => this.handleInput(e));
         // Safari does not reliably fire `input` on contenteditable elements, which left the
         // Post button stuck disabled even after typing. Listen to keyup/blur as a fallback so
@@ -383,6 +397,8 @@ class DiscussionBoard {
         this.editor.addEventListener('copy', (e) => { e.preventDefault(); });
         this.editor.addEventListener('cut', (e) => { e.preventDefault(); });
         this.editor.addEventListener('drop', (e) => { e.preventDefault(); });
+        this.editor.addEventListener('compositionstart', () => { this.isComposing = true; });
+        this.editor.addEventListener('compositionend', () => { this.isComposing = false; });
     }
 
     // Single source of truth for the Post button's enabled state:
@@ -426,11 +442,94 @@ class DiscussionBoard {
         }
     }
 
+    handleBeforeInput(e) {
+        // Remember the editor state before this insertion. If the insertion is
+        // blocked, input or MutationObserver can roll back to this snapshot.
+        this.allowedSnapshot = this.editor.innerHTML;
+
+        // Allow IME composition; compositionstart/compositionend set this flag.
+        if (this.isComposing) return;
+
+        const inputType = e.inputType || '';
+        const data = e.data || '';
+
+        // Hard non-typing insertions (paste, drop, yank).
+        const hardBlockedTypes = new Set([
+            'insertFromPaste',
+            'insertFromPasteAsQuotation',
+            'insertFromDrop',
+            'insertFromYank'
+        ]);
+
+        if (hardBlockedTypes.has(inputType)) {
+            e.preventDefault();
+            this.recordUserActivity();
+            this.pasteAttempts++;
+            this.addTimelineEvent('paste_blocked', `Blocked ${inputType} in main editor`);
+            this.showPasteWarning();
+            return;
+        }
+
+        // Block other single insertions that are too large to have come from typing
+        // (e.g., large autocorrect replacements or scripted insertText).
+        if (data.length > 20) {
+            const now = Date.now();
+            const recentKs = this.recentKeystrokeTimestamps.filter(t => now - t < 2000).length;
+            if (recentKs < data.length * 0.4) {
+                e.preventDefault();
+                this.typingAnalytics.suspectedInjections.push({
+                    delta: data.length,
+                    timestamp: now,
+                    recentKeystrokes: recentKs,
+                    source: 'beforeinput'
+                });
+                this.addTimelineEvent('dom_injection', `Blocked ${data.length}-char ${inputType} insertion`);
+                this.showPasteWarning();
+            }
+        }
+    }
+
     handleInput(e) {
         const now = Date.now();
+        this.recordUserActivity();
+        const inputType = e.inputType || '';
+
+        // Fallback for browsers where beforeinput didn't cancel the insertion.
+        const hardBlockedTypes = new Set([
+            'insertFromPaste',
+            'insertFromPasteAsQuotation',
+            'insertFromDrop',
+            'insertFromYank'
+        ]);
+
+        if (!this.isComposing && hardBlockedTypes.has(inputType)) {
+            this.revertEditor();
+            this.pasteAttempts++;
+            this.addTimelineEvent('paste_blocked', `Blocked ${inputType} via input handler`);
+            this.showPasteWarning();
+            return;
+        }
+
+        // Also catch any other single insertion that is too large to be typing.
+        const data = e.data || '';
+        if (!this.isComposing && data.length > 20) {
+            const recentKs = this.recentKeystrokeTimestamps.filter(t => now - t < 2000).length;
+            if (recentKs < data.length * 0.4) {
+                this.typingAnalytics.suspectedInjections.push({
+                    delta: data.length,
+                    timestamp: now,
+                    recentKeystrokes: recentKs,
+                    source: 'input'
+                });
+                this.addTimelineEvent('dom_injection', `Blocked ${data.length}-char ${inputType} via input handler`);
+                this.revertEditor();
+                this.showPasteWarning();
+                return;
+            }
+        }
+
         this.keystrokeCounter++;
 
-        const inputType = e.inputType;
         if (inputType === 'deleteContentBackward') this.typingAnalytics.backspaceCount++;
         if (inputType === 'deleteContentForward') this.typingAnalytics.deleteCount++;
 
@@ -458,11 +557,15 @@ class DiscussionBoard {
         this.typingAnalytics.lastKeystrokeTime = now;
         this.updateStats();
         this.refreshSubmitState();
+
+        // After a legitimate change, update the snapshot used for rollbacks.
+        this.allowedSnapshot = this.editor.innerHTML;
     }
 
     handlePaste(e) {
         e.preventDefault();
         e.stopPropagation();
+        this.recordUserActivity();
         this.pasteAttempts++;
         this.addTimelineEvent('paste_blocked', `Paste attempt #${this.pasteAttempts} blocked`);
         this.showPasteWarning();
@@ -478,6 +581,14 @@ class DiscussionBoard {
         const words = text.trim() ? text.trim().split(/\s+/).length : 0;
         this.wordCount.textContent = `${words} words`;
         this.charCount.textContent = `${text.length} characters`;
+    }
+
+    revertEditor() {
+        this.editor.innerHTML = this.allowedSnapshot;
+        this.lastKnownLength = this.editor.textContent.length;
+        this.lastKnownLengthAtBlur = this.editor.textContent.length;
+        this.updateStats();
+        this.refreshSubmitState();
     }
 
     // ======================
@@ -524,6 +635,7 @@ class DiscussionBoard {
     // ======================
 
     setupMutationObserver() {
+        this.allowedSnapshot = this.editor.innerHTML;
         this.lastKnownLength = this.editor.textContent.length;
 
         const observer = new MutationObserver(() => {
@@ -536,9 +648,18 @@ class DiscussionBoard {
                 if (recentKs < delta * 0.4) {
                     this.typingAnalytics.suspectedInjections.push({ delta, timestamp: now, recentKeystrokes: recentKs });
                     this.addTimelineEvent('dom_injection', `${delta} chars injected (only ${recentKs} keys in last 2s)`, { delta });
+                    this.revertEditor();
+                    this.showPasteWarning();
                 }
             }
-            this.lastKnownLength = currentLength;
+
+            // Update the allowed snapshot for legitimate changes.
+            const recentKs = this.recentKeystrokeTimestamps.filter(t => now - t < 2000).length;
+            if (delta <= 20 || recentKs >= delta * 0.4) {
+                this.allowedSnapshot = this.editor.innerHTML;
+            }
+
+            this.lastKnownLength = this.editor.textContent.length;
         });
 
         observer.observe(this.editor, { childList: true, subtree: true, characterData: true });
@@ -629,6 +750,9 @@ class DiscussionBoard {
                 const scratchPad = document.getElementById('scratch-pad');
                 if (scratchPad && data.scratchPad) scratchPad.innerHTML = data.scratchPad;
                 if (this.pasteField && data.pasted) this.pasteField.innerHTML = data.pasted;
+                this.allowedSnapshot = this.editor.innerHTML;
+                this.lastKnownLength = this.editor.textContent.length;
+                this.lastKnownLengthAtBlur = this.editor.textContent.length;
                 this.updateStats();
                 this.refreshSubmitState();
             }
@@ -721,6 +845,41 @@ class DiscussionBoard {
 
     startAutoRefresh() {
         setInterval(() => this.loadPosts(), 30000);
+    }
+
+    startKeepAlive() {
+        // Send a lightweight auth ping while the user is actively typing.
+        // This extends the server's sliding LTI token TTL for Safari/ITP users
+        // whose session cookies are blocked inside the D2L iframe.
+        setInterval(() => this.maybeKeepAlive(), 60 * 1000);
+    }
+
+    recordUserActivity() {
+        this.lastUserActivity = Date.now();
+    }
+
+    maybeKeepAlive() {
+        if (!this.ltiToken || !this.userInfo) return;
+        const now = Date.now();
+        if (now - this.lastKeepAlive < this.keepAliveIntervalMs) return;
+        if (now - this.lastUserActivity > this.keepAliveInactivityMs) return;
+        this.pingKeepAlive();
+    }
+
+    async pingKeepAlive() {
+        try {
+            const response = await fetch('/api/keep-alive', {
+                method: 'POST',
+                headers: this.apiHeaders()
+            });
+            if (response.ok) {
+                this.lastKeepAlive = Date.now();
+            }
+        } catch (e) {
+            // Keep-alive is best-effort; the user will see the real auth error
+            // if they try to submit after the token truly expires.
+            console.warn('Keep-alive failed:', e);
+        }
     }
 
     // ======================

@@ -229,6 +229,8 @@ function lookupLtiToken(token) {
     const entry = ltiTokenStore.get(token);
     if (!entry) return null;
     if (Date.now() > entry.expires) { ltiTokenStore.delete(token); return null; }
+    // Sliding TTL: extend the token each time it is used while the user is active.
+    entry.expires = Date.now() + LTI_TOKEN_TTL_MS;
     return entry.userData;
 }
 
@@ -590,6 +592,12 @@ app.post('/lti/test-launch', (req, res) => {
 // Health check endpoint for Render
 app.get('/api/session-check', (req, res) => {
     res.json({ authenticated: !!(req.session && req.session.userId) });
+});
+
+// Lightweight keep-alive so Safari/ITP users can keep their LTI token alive
+// while typing a long post. The token sliding TTL is refreshed by requireAuth.
+app.post('/api/keep-alive', requireAuth, (req, res) => {
+    res.json({ ok: true });
 });
 
 // Client-side error logging from the LTI UI (no auth required; only used for diagnostics)
