@@ -191,7 +191,7 @@ When you (the instructor) click the discussion link in a module:
      - Student name and email
      - AI probability score (from Sapling AI Detector)
      - Composite risk score (0-100) combining AI detection + typing analytics
-     - Typing analytics: correction ratio, suspicious refocuses, WPM spikes, injection attempts
+     - Typing analytics: correction ratio, suspicious refocuses, WPM spikes, injection attempts (each attempt now records the inserted text, `inputType`, source, and a compact mutation record)
      - Full post text
      - Post type (original post vs. reply)
 5. Click **Refresh** at any time to load new posts (the dashboard does not auto-refresh, so grading work is not lost)

@@ -1,5 +1,11 @@
 'use strict';
 
+// Forensic limits for DOM-injection records. These keep payloads from
+// ballooning while still preserving the actual inserted text for investigation.
+const DOM_INJECTION_TEXT_MAX = 1000;
+const DOM_INJECTION_NODE_TEXT_MAX = 200;
+const DOM_INJECTION_MUTATION_RECORDS_MAX = 20;
+
 class DiscussionBoard {
     constructor() {
         this.editor = document.getElementById('editor');
@@ -46,6 +52,11 @@ class DiscussionBoard {
         this.lastKnownLengthAtBlur = 0;
         this.allowedSnapshot = this.editor ? this.editor.innerHTML : '';
         this.isComposing = false;
+
+        // Forensic state for correlating DOM mutations with input events.
+        this._textBeforeInput = '';
+        this._lastInputType = null;
+        this._lastInputTypeAt = 0;
 
         this.typingAnalytics = {
             lastKeystrokeTime: null,
@@ -446,12 +457,18 @@ class DiscussionBoard {
         // Remember the editor state before this insertion. If the insertion is
         // blocked, input or MutationObserver can roll back to this snapshot.
         this.allowedSnapshot = this.editor.innerHTML;
+        this._textBeforeInput = this.editor.textContent || '';
 
         // Allow IME composition; compositionstart/compositionend set this flag.
         if (this.isComposing) return;
 
         const inputType = e.inputType || '';
         const data = e.data || '';
+
+        // Keep the last input type so the MutationObserver can correlate
+        // DOM changes with the event that likely caused them.
+        this._lastInputType = inputType;
+        this._lastInputTypeAt = Date.now();
 
         // Hard non-typing insertions (paste, drop, yank).
         const hardBlockedTypes = new Set([
@@ -465,7 +482,17 @@ class DiscussionBoard {
             e.preventDefault();
             this.recordUserActivity();
             this.pasteAttempts++;
-            this.addTimelineEvent('paste_blocked', `Blocked ${inputType} in main editor`);
+            const now = Date.now();
+            this.typingAnalytics.suspectedInjections.push(this.buildSuspectedInjection({
+                delta: data.length,
+                timestamp: now,
+                recentKeystrokes: 0,
+                source: 'beforeinput',
+                inputType,
+                inputTypeAt: now,
+                data
+            }));
+            this.addTimelineEvent('paste_blocked', `Blocked ${inputType} in main editor`, { inputType });
             this.showPasteWarning();
             return;
         }
@@ -477,13 +504,16 @@ class DiscussionBoard {
             const recentKs = this.recentKeystrokeTimestamps.filter(t => now - t < 2000).length;
             if (recentKs < data.length * 0.4) {
                 e.preventDefault();
-                this.typingAnalytics.suspectedInjections.push({
+                this.typingAnalytics.suspectedInjections.push(this.buildSuspectedInjection({
                     delta: data.length,
                     timestamp: now,
                     recentKeystrokes: recentKs,
-                    source: 'beforeinput'
-                });
-                this.addTimelineEvent('dom_injection', `Blocked ${data.length}-char ${inputType} insertion`);
+                    source: 'beforeinput',
+                    inputType,
+                    inputTypeAt: now,
+                    data
+                }));
+                this.addTimelineEvent('dom_injection', `Blocked ${data.length}-char ${inputType} insertion`, { inputType, delta: data.length });
                 this.showPasteWarning();
             }
         }
@@ -493,6 +523,10 @@ class DiscussionBoard {
         const now = Date.now();
         this.recordUserActivity();
         const inputType = e.inputType || '';
+        const data = e.data || '';
+
+        this._lastInputType = inputType;
+        this._lastInputTypeAt = now;
 
         // Fallback for browsers where beforeinput didn't cancel the insertion.
         const hardBlockedTypes = new Set([
@@ -503,25 +537,38 @@ class DiscussionBoard {
         ]);
 
         if (!this.isComposing && hardBlockedTypes.has(inputType)) {
+            const currentText = this.editor.textContent || '';
+            const prevText = this._textBeforeInput || '';
+            this.typingAnalytics.suspectedInjections.push(this.buildSuspectedInjection({
+                delta: Math.max(0, currentText.length - prevText.length),
+                timestamp: now,
+                recentKeystrokes: 0,
+                source: 'input',
+                inputType,
+                inputTypeAt: now,
+                prevText
+            }));
             this.revertEditor();
             this.pasteAttempts++;
-            this.addTimelineEvent('paste_blocked', `Blocked ${inputType} via input handler`);
+            this.addTimelineEvent('paste_blocked', `Blocked ${inputType} via input handler`, { inputType });
             this.showPasteWarning();
             return;
         }
 
         // Also catch any other single insertion that is too large to be typing.
-        const data = e.data || '';
         if (!this.isComposing && data.length > 20) {
             const recentKs = this.recentKeystrokeTimestamps.filter(t => now - t < 2000).length;
             if (recentKs < data.length * 0.4) {
-                this.typingAnalytics.suspectedInjections.push({
+                this.typingAnalytics.suspectedInjections.push(this.buildSuspectedInjection({
                     delta: data.length,
                     timestamp: now,
                     recentKeystrokes: recentKs,
-                    source: 'input'
-                });
-                this.addTimelineEvent('dom_injection', `Blocked ${data.length}-char ${inputType} via input handler`);
+                    source: 'input',
+                    inputType,
+                    inputTypeAt: now,
+                    data
+                }));
+                this.addTimelineEvent('dom_injection', `Blocked ${data.length}-char ${inputType} via input handler`, { inputType, delta: data.length });
                 this.revertEditor();
                 this.showPasteWarning();
                 return;
@@ -560,6 +607,7 @@ class DiscussionBoard {
 
         // After a legitimate change, update the snapshot used for rollbacks.
         this.allowedSnapshot = this.editor.innerHTML;
+        this._textBeforeInput = this.editor.textContent || '';
     }
 
     handlePaste(e) {
@@ -589,6 +637,117 @@ class DiscussionBoard {
         this.lastKnownLengthAtBlur = this.editor.textContent.length;
         this.updateStats();
         this.refreshSubmitState();
+    }
+
+    // ======================
+    // FORENSICS: DOM INJECTIONS
+    // ======================
+
+    truncateInjectionText(str, maxLen = DOM_INJECTION_TEXT_MAX) {
+        if (!str) return '';
+        str = String(str);
+        if (str.length <= maxLen) return str;
+        const half = Math.floor((maxLen - 1) / 2);
+        return str.slice(0, half) + '…' + str.slice(-half);
+    }
+
+    extractNodeText(node) {
+        if (!node) return '';
+        if (node.nodeType === Node.TEXT_NODE) return node.data || '';
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const direct = Array.from(node.childNodes)
+                .map(c => this.extractNodeText(c))
+                .join('');
+            const full = node.textContent || '';
+            return full.length > DOM_INJECTION_NODE_TEXT_MAX ? direct : full;
+        }
+        return '';
+    }
+
+    getMutationAddedText(record) {
+        if (record.type === 'childList') {
+            const text = Array.from(record.addedNodes)
+                .map(n => this.extractNodeText(n))
+                .filter(Boolean)
+                .join(' ');
+            return this.truncateInjectionText(text, DOM_INJECTION_NODE_TEXT_MAX);
+        }
+        if (record.type === 'characterData' && record.target) {
+            const oldValue = record.oldValue || '';
+            const newValue = record.target.data || '';
+            if (newValue.startsWith(oldValue)) {
+                return this.truncateInjectionText(newValue.slice(oldValue.length), DOM_INJECTION_NODE_TEXT_MAX);
+            }
+            if (newValue.endsWith(oldValue)) {
+                return this.truncateInjectionText(newValue.slice(0, newValue.length - oldValue.length), DOM_INJECTION_NODE_TEXT_MAX);
+            }
+            return this.truncateInjectionText(newValue, DOM_INJECTION_NODE_TEXT_MAX);
+        }
+        return '';
+    }
+
+    serializeMutationRecord(record) {
+        const summary = { type: record.type };
+        if (record.target) {
+            summary.target = record.target.nodeName;
+        }
+        if (record.type === 'childList') {
+            summary.added = record.addedNodes.length;
+            summary.removed = record.removedNodes.length;
+            const addedText = this.getMutationAddedText(record);
+            if (addedText) summary.addedText = addedText;
+        }
+        if (record.type === 'characterData' && record.target) {
+            summary.oldValue = this.truncateInjectionText(record.oldValue || '', DOM_INJECTION_NODE_TEXT_MAX);
+            summary.newValue = this.truncateInjectionText(record.target.data || '', DOM_INJECTION_NODE_TEXT_MAX);
+        }
+        return summary;
+    }
+
+    buildSuspectedInjection({ delta, timestamp, recentKeystrokes, source, inputType, inputTypeAt, data, mutations, prevText }) {
+        const record = {
+            delta,
+            timestamp,
+            recentKeystrokes,
+            source: source || 'unknown',
+            inputType: inputType || null,
+            composing: this.isComposing,
+            pasteAttemptsAtInject: this.pasteAttempts,
+            totalKeystrokesAtInject: this.keystrokeCounter
+        };
+
+        if (inputType && inputTypeAt) {
+            record.inputTypeAt = inputTypeAt;
+            record.inputTypeCorrelationMs = timestamp - inputTypeAt;
+        }
+
+        // Determine the actual text that appeared.
+        if (data) {
+            record.insertedText = this.truncateInjectionText(data, DOM_INJECTION_TEXT_MAX);
+        } else if (mutations && mutations.length) {
+            const texts = [];
+            for (const m of mutations) {
+                const t = this.getMutationAddedText(m);
+                if (t) texts.push(t);
+            }
+            const joined = texts.join('');
+            if (joined) record.insertedText = this.truncateInjectionText(joined, DOM_INJECTION_TEXT_MAX);
+        } else if (prevText !== undefined) {
+            const currentText = this.editor.textContent || '';
+            if (currentText.startsWith(prevText)) {
+                record.insertedText = this.truncateInjectionText(currentText.slice(prevText.length), DOM_INJECTION_TEXT_MAX);
+            } else if (currentText.endsWith(prevText)) {
+                record.insertedText = this.truncateInjectionText(currentText.slice(0, currentText.length - prevText.length), DOM_INJECTION_TEXT_MAX);
+            }
+        }
+
+        if (mutations && mutations.length) {
+            record.mutationRecords = mutations
+                .slice(0, DOM_INJECTION_MUTATION_RECORDS_MAX)
+                .map(m => this.serializeMutationRecord(m));
+        }
+
+        return record;
     }
 
     // ======================
@@ -638,7 +797,7 @@ class DiscussionBoard {
         this.allowedSnapshot = this.editor.innerHTML;
         this.lastKnownLength = this.editor.textContent.length;
 
-        const observer = new MutationObserver(() => {
+        const observer = new MutationObserver((mutations) => {
             const now = Date.now();
             const currentLength = this.editor.textContent.length;
             const delta = currentLength - this.lastKnownLength;
@@ -646,8 +805,24 @@ class DiscussionBoard {
             if (delta > 20) {
                 const recentKs = this.recentKeystrokeTimestamps.filter(t => now - t < 2000).length;
                 if (recentKs < delta * 0.4) {
-                    this.typingAnalytics.suspectedInjections.push({ delta, timestamp: now, recentKeystrokes: recentKs });
-                    this.addTimelineEvent('dom_injection', `${delta} chars injected (only ${recentKs} keys in last 2s)`, { delta });
+                    // If this mutation happened very soon after a beforeinput/input event,
+                    // we can correlate it with that input type.
+                    const correlatedInputType = (this._lastInputTypeAt && now - this._lastInputTypeAt < 100)
+                        ? this._lastInputType
+                        : null;
+                    const inputTypeAt = correlatedInputType ? this._lastInputTypeAt : null;
+
+                    this.typingAnalytics.suspectedInjections.push(this.buildSuspectedInjection({
+                        delta,
+                        timestamp: now,
+                        recentKeystrokes: recentKs,
+                        source: 'mutation-observer',
+                        inputType: correlatedInputType,
+                        inputTypeAt,
+                        mutations,
+                        prevText: this._textBeforeInput || ''
+                    }));
+                    this.addTimelineEvent('dom_injection', `${delta} chars injected (only ${recentKs} keys in last 2s)`, { delta, inputType: correlatedInputType });
                     this.revertEditor();
                     this.showPasteWarning();
                 }
@@ -662,7 +837,7 @@ class DiscussionBoard {
             this.lastKnownLength = this.editor.textContent.length;
         });
 
-        observer.observe(this.editor, { childList: true, subtree: true, characterData: true });
+        observer.observe(this.editor, { childList: true, subtree: true, characterData: true, characterDataOldValue: true });
     }
 
     // ======================

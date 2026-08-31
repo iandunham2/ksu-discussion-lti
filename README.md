@@ -23,6 +23,7 @@ An LTI 1.1 discussion board for D2L Brightspace. Student posts are analyzed by t
   - Correction ratio
   - Paste event detection
   - Suspicious refocuses and WPM spikes
+  - DOM injection forensics (inserted text, input type, and mutation records)
 - 🏷️ Per-discussion labels (instructor can rename each module)
 - 🔍 Expandable post detail views
 - ⚡ Manual refresh so grading work is not lost
@@ -288,5 +289,5 @@ For technical support or questions:
 
 ---
 
-**Version**: 2.5.9  
-**Last Updated**: August 25, 2026  
+**Version**: 2.6.0  
+**Last Updated**: August 31, 2026  
