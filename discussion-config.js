@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const configPath = path.resolve(__dirname, 'discussions.json');
+const configPath = process.env.DISCUSSIONS_CONFIG_PATH || path.resolve(__dirname, 'discussions.json');
 
 let raw;
 try {
@@ -24,6 +24,7 @@ const TITLE_TO_DISC = config.titleToDisc || {};
 const INSTRUCTIONS = config.instructions || {};
 const INITIAL_POST_DUE = config.initialPostDue || {};
 const BLOCKED_PREFIXES = Array.isArray(config.blockedDiscPrefixes) ? config.blockedDiscPrefixes : ['3340-'];
+const EXAM_MODE = process.env.EXAM_MODE === 'true';
 
 function isBlocked(disc) {
     if (!disc) return false;
@@ -119,6 +120,7 @@ module.exports = {
     INITIAL_POST_DUE,
     CORRECT_3300_INSTRUCTIONS: INSTRUCTIONS,
     BLOCKED_PREFIXES,
+    EXAM_MODE,
     resolveDisc,
     discFromTitle,
     getInstructions,

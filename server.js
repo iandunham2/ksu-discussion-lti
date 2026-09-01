@@ -22,6 +22,7 @@ const {
     getInstructions,
     getInitialPostDue,
     getDiscOptions,
+    EXAM_MODE,
 } = require('./discussion-config.js');
 
 const app = express();
@@ -699,7 +700,8 @@ app.get('/api/user', requireAuth, async (req, res) => {
         resourceLinkTitle: req.session.user.resourceLinkTitle,
         disc: req.session.user.disc || null,
         instructions,
-        initialPostDue: getInitialPostDue(discKey)
+        initialPostDue: getInitialPostDue(discKey),
+        examMode: EXAM_MODE
     });
 });
 
@@ -777,6 +779,12 @@ app.get('/api/posts', requireAuth, async (req, res) => {
 
         // Query by course context + disc — resourceLinkId is often shared across topics
         const query = { contextId: req.session.user.contextId, disc };
+
+        // In exam mode, students can only see their own submissions.
+        if (!req.session.user.isInstructor && EXAM_MODE) {
+            query.authorId = req.session.user.id;
+        }
+
         let posts;
 
         if (postsCollection) {
@@ -823,8 +831,35 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
             const disc = req.session.user.disc;
             const initialDue = getInitialPostDue(disc);
             if (initialDue && new Date() > new Date(initialDue)) {
-                return res.status(403).json({ error: 'The initial post deadline has passed. You may still reply to classmates until Sunday.' });
+                const deadlineMsg = EXAM_MODE
+                    ? 'The exam submission deadline has passed. No further submissions are accepted.'
+                    : 'The initial post deadline has passed. You may still reply to classmates until Sunday.';
+                return res.status(403).json({ error: deadlineMsg });
             }
+
+            // Exam mode: one submission per student, no replies.
+            if (EXAM_MODE) {
+                const existingQuery = { contextId: req.session.user.contextId, disc, authorId: req.session.user.id, parentId: null };
+                let existing;
+                if (postsCollection) {
+                    existing = await postsCollection.findOne(existingQuery);
+                } else {
+                    existing = (global.inMemoryPosts || []).find(p =>
+                        p.contextId === req.session.user.contextId &&
+                        p.disc === disc &&
+                        p.authorId === req.session.user.id &&
+                        !p.parentId
+                    );
+                }
+                if (existing) {
+                    return res.status(403).json({ error: 'You have already submitted your exam. Contact your instructor if you need to resubmit.' });
+                }
+            }
+        }
+
+        // Exam mode does not allow replies at all.
+        if (EXAM_MODE && parentId) {
+            return res.status(403).json({ error: 'Replies are not allowed on exams.' });
         }
 
         // Optional pasted references / links / images. Sanitized server-side.

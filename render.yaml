@@ -18,3 +18,25 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false  # paste your MongoDB Atlas connection string
+
+  - type: web
+    name: ksu-exam-lti
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node exam-server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXAM_MODE
+        value: 'true'
+      - key: LTI_CONSUMER_KEY
+        sync: false  # register a separate LTI 1.1 tool for exams in D2L
+      - key: LTI_CONSUMER_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SAPLING_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false

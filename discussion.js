@@ -25,6 +25,7 @@ class DiscussionBoard {
 
         this.userInfo = null;
         this.replyingTo = null; // parentId for reply mode
+        this.examMode = false; // true when running in exam/isolated mode
         this.initialPostDue = null; // ISO timestamp for initial post deadline
 
         // Safari ITP workaround: capture token from URL and persist for this tab session
@@ -107,6 +108,7 @@ class DiscussionBoard {
                 this.userInfoDisplay.textContent = `Logged in as: ${this.userInfo.name}`;
                 this.contextInfo.textContent = this.userInfo.contextTitle || '';
                 this.discussionTitle.textContent = this.userInfo.resourceLinkTitle || 'Discussion Board';
+                this.examMode = this.userInfo.examMode || false;
                 if (this.userInfo.instructions) {
                     const panel = document.getElementById('instructions-panel');
                     if (panel) { panel.innerHTML = this.sanitizeHtml(this.userInfo.instructions); panel.style.display = 'block'; }
@@ -146,7 +148,10 @@ class DiscussionBoard {
 
     renderPosts(posts) {
         if (posts.length === 0) {
-            this.postsContainer.innerHTML = '<p class="empty-msg">No posts yet. Be the first to start the discussion!</p>';
+            const emptyMsg = this.examMode
+                ? 'Your exam response will appear here after you submit it. Other students\' responses are hidden until after the due date.'
+                : 'No posts yet. Be the first to start the discussion!';
+            this.postsContainer.innerHTML = `<p class="empty-msg">${emptyMsg}</p>`;
             return;
         }
 
@@ -159,6 +164,25 @@ class DiscussionBoard {
                 .filter(r => r.parentId === post.id)
                 .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
+            const replyButton = this.examMode ? '' : `
+                <button class="reply-btn" data-reply-id="${post.id}" data-reply-name="${this.escapeHtml(post.authorName)}">Reply</button>
+            `;
+            const repliesBlock = this.examMode ? '' : (postReplies.length > 0 ? `
+                <div class="replies">
+                    ${postReplies.map(reply => `
+                        <div class="reply-card">
+                            <div class="post-header">
+                                <strong class="post-author">${this.escapeHtml(reply.authorName)}</strong>
+                                <span class="post-time">${this.formatTime(reply.timestamp)}</span>
+                            </div>
+                            <div class="post-body">${this.escapeHtml(reply.text)}</div>
+                            ${reply.pasted ? `<div class="post-pasted"><div class="post-pasted-label">Pasted references</div>${this.sanitizeHtml(reply.pasted)}</div>` : ''}
+                            <span class="post-word-count">${reply.wordCount} words</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '');
+
             return `
                 <div class="post-card" data-post-id="${post.id}">
                     <div class="post-header">
@@ -169,23 +193,9 @@ class DiscussionBoard {
                     ${post.pasted ? `<div class="post-pasted"><div class="post-pasted-label">Pasted references</div>${this.sanitizeHtml(post.pasted)}</div>` : ''}
                     <div class="post-footer">
                         <span class="post-word-count">${post.wordCount} words</span>
-                        <button class="reply-btn" data-reply-id="${post.id}" data-reply-name="${this.escapeHtml(post.authorName)}">Reply</button>
+                        ${replyButton}
                     </div>
-                    ${postReplies.length > 0 ? `
-                        <div class="replies">
-                            ${postReplies.map(reply => `
-                                <div class="reply-card">
-                                    <div class="post-header">
-                                        <strong class="post-author">${this.escapeHtml(reply.authorName)}</strong>
-                                        <span class="post-time">${this.formatTime(reply.timestamp)}</span>
-                                    </div>
-                                    <div class="post-body">${this.escapeHtml(reply.text)}</div>
-                                    ${reply.pasted ? `<div class="post-pasted"><div class="post-pasted-label">Pasted references</div>${this.sanitizeHtml(reply.pasted)}</div>` : ''}
-                                    <span class="post-word-count">${reply.wordCount} words</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
+                    ${repliesBlock}
                 </div>
             `;
         }).join('');
@@ -248,6 +258,10 @@ class DiscussionBoard {
             alert('Please wait for authentication.');
             return;
         }
+        if (this.examMode && this.replyingTo) {
+            alert('Replies are not allowed on exams.');
+            return;
+        }
         if (!text || text.length < 10) {
             alert('Please write at least 10 characters.');
             return;
@@ -255,7 +269,10 @@ class DiscussionBoard {
 
         if (!this.userInfo.isInstructor && !this.replyingTo && this.initialPostDue) {
             if (new Date() > new Date(this.initialPostDue)) {
-                alert('The initial post deadline has passed. You may still reply to classmates until the full discussion deadline.');
+                const deadlineMsg = this.examMode
+                    ? 'The exam submission deadline has passed. No further submissions are accepted.'
+                    : 'The initial post deadline has passed. You may still reply to classmates until the full discussion deadline.';
+                alert(deadlineMsg);
                 return;
             }
         }
@@ -388,7 +405,9 @@ class DiscussionBoard {
             const section = document.getElementById('compose-section');
             if (section) section.insertBefore(banner, section.firstChild);
         }
-        banner.textContent = 'The initial post deadline has passed. New top-level posts are no longer accepted, but you may still reply to classmates until the full discussion deadline.';
+        banner.textContent = this.examMode
+            ? 'The exam submission deadline has passed. No further submissions are accepted.'
+            : 'The initial post deadline has passed. New top-level posts are no longer accepted, but you may still reply to classmates until the full discussion deadline.';
     }
 
     // ======================
@@ -425,6 +444,10 @@ class DiscussionBoard {
             if (new Date() > new Date(this.initialPostDue)) {
                 blocked = true;
             }
+        }
+        // Exam mode never allows replies.
+        if (this.examMode && this.replyingTo) {
+            blocked = true;
         }
         this.submitPostBtn.disabled = blocked;
     }

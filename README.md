@@ -10,6 +10,7 @@ An LTI 1.1 discussion board for D2L Brightspace. Student posts are analyzed by t
 - 📋 Optional "Paste Field" per post for links, images, and pasted references
 - 🔐 LTI 1.1 launch authentication from D2L
 - ✅ Write new posts and reply to classmates
+- 🎓 Optional **Exam Mode** (set `EXAM_MODE=true`) for isolated, single-submission take-home exams
 
 ### For Instructors
 - 📊 Dashboard with all posts in the course
@@ -54,6 +55,26 @@ node server.js
 # Access
 curl http://localhost:3000/health
 ```
+
+## Exam Mode
+
+The same package can run as an **isolated, AI-monitored exam tool** by launching with the `EXAM_MODE=true` environment variable and a separate `exams.json` configuration.
+
+- Students can make **one submission** per exam; subsequent top-level posts are rejected.
+- **Replies are disabled**; the tool behaves as a single-submission essay workspace.
+- Students see **only their own submission**; other students' responses are hidden.
+- Paste protection, typing analytics, Sapling AI detection, and instructor grade passback all work the same way.
+- To run a dedicated exam deployment alongside the discussion deployment, use `exam-server.js` (or the `ksu-exam-lti` package in `windsurf-discussion-merge`).
+
+```bash
+# Run the exam tool locally
+EXAM_MODE=true DISCUSSIONS_CONFIG_PATH=./exams.json node server.js
+
+# Or use the wrapper
+node exam-server.js
+```
+
+The `render.yaml` in this repo also defines a second Render service, `ksu-exam-lti`, so a single repository can deploy both the discussion tool and the exam tool.
 
 ## Production Deployment
 
@@ -289,5 +310,5 @@ For technical support or questions:
 
 ---
 
-**Version**: 2.6.0  
-**Last Updated**: August 31, 2026  
+**Version**: 2.7.0  
+**Last Updated**: October 2026  

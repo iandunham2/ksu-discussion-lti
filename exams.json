@@ -1,0 +1,15 @@
+{
+  "topicIdToDisc": {},
+  "titleToDisc": {
+    "Midterm Exam": "4424-midterm",
+    "Final Exam": "4424-final"
+  },
+  "instructions": {
+    "4424-midterm": "<h3>Midterm Exam</h3><p>The midterm is a take-home essay exam covering Modules 1–7. You will answer <strong>two</strong> of the three provided short-essay questions and <strong>one</strong> long-essay question. Each short-essay response should be 300–500 words; the long-essay response should be 750–1,000 words.</p><p><strong>Requirements</strong></p><ul><li>Cite specific readings and media theories from Modules 1–7.</li><li>Use APA in-text citations and include a reference list.</li><li>Type your full exam response in the editor below. Pasting into the main editor is blocked to preserve typing analytics; use the <strong>Pasted references</strong> area for citations, links, and references.</li><li>You may submit <strong>only once</strong>. Your response is hidden from other students until after the due date.</li><li>Do not use generative AI to draft your responses; you may use it only for grammar and spelling checks.</li></ul>",
+    "4424-final": "<h3>Final Exam</h3><p>The final is a take-home essay exam covering Modules 8–14. You will answer <strong>two</strong> of the three provided short-essay questions and <strong>one</strong> long-essay question. Each short-essay response should be 300–500 words; the long-essay response should be 750–1,000 words.</p><p><strong>Requirements</strong></p><ul><li>Cite specific readings and media theories from Modules 8–14.</li><li>Use APA in-text citations and include a reference list.</li><li>Type your full exam response in the editor below. Pasting into the main editor is blocked to preserve typing analytics; use the <strong>Pasted references</strong> area for citations, links, and references.</li><li>You may submit <strong>only once</strong>. Your response is hidden from other students until after the due date.</li><li>Do not use generative AI to draft your responses; you may use it only for grammar and spelling checks.</li></ul>"
+  },
+  "initialPostDue": {
+    "4424-midterm": "2026-10-12T03:59:00.000Z",
+    "4424-final": "2026-12-12T04:59:00.000Z"
+  }
+}
