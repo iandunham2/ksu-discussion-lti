@@ -1,5 +1,8 @@
 {
-  "topicIdToDisc": {},
+  "topicIdToDisc": {
+    "6256944": "4424-midterm",
+    "6256945": "4424-final"
+  },
   "titleToDisc": {
     "Midterm Exam": "4424-midterm",
     "Final Exam": "4424-final"
