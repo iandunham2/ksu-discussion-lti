@@ -39,6 +39,8 @@ services:
         sync: false  # for headless D2L re-auth fallback
       - key: AGENT_SELF_ADDRESS
         value: 'idunham@kennesaw.edu'
+      - key: GRAPH_CLIENT_ID
+        sync: false  # optional override; defaults to Microsoft Office first-party client
 
   - type: web
     name: ksu-exam-lti

@@ -1,10 +1,11 @@
 'use strict';
 // Microsoft Graph helpers: refresh-token minting and inbox listing.
-// Uses Microsoft's public client (Azure CLI) — no app registration required.
+// Uses the Microsoft Office first-party public client (v1 token endpoint) —
+// no app registration or admin consent required.
 const GRAPH = 'https://graph.microsoft.com/v1.0';
-const TOKEN_URL = 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token';
-const CLIENT_ID = process.env.GRAPH_CLIENT_ID || '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // Azure CLI
-const SCOPES = 'https://graph.microsoft.com/Mail.Read Mail.ReadWrite offline_access';
+const TOKEN_URL = 'https://login.microsoftonline.com/organizations/oauth2/token';
+const CLIENT_ID = process.env.GRAPH_CLIENT_ID || 'd3590ed6-52b3-4102-aeff-aad2292ab01c'; // Microsoft Office
+const RESOURCE = 'https://graph.microsoft.com';
 
 async function mintAccessToken(refreshToken) {
     const res = await fetch(TOKEN_URL, {
@@ -14,7 +15,7 @@ async function mintAccessToken(refreshToken) {
             client_id: CLIENT_ID,
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
-            scope: SCOPES
+            resource: RESOURCE
         })
     });
     const data = await res.json();
