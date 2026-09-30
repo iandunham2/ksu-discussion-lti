@@ -18,6 +18,27 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false  # paste your MongoDB Atlas connection string
+      # --- email draft agent (email-agent/ module) ---
+      - key: EMAIL_AGENT_ENABLED
+        sync: false  # 'true' to enable
+      - key: AGENT_SHARED_SECRET
+        sync: false  # bearer token for /agent/session-materials + /agent/report
+      - key: AGENT_VAULT_KEY
+        sync: false  # AES passphrase for vault blobs (graph refresh token, d2l cookie)
+      - key: AGENT_API_BASE
+        sync: false  # this service's public URL, e.g. https://ksu-discussion-lti.onrender.com
+      - key: DEVIN_PAT
+        sync: false  # cog_ personal access token from app.devin.ai
+      - key: DEVIN_ORG_ID
+        sync: false  # from GET /v3/self
+      - key: EMAIL_AGENT_REPO
+        sync: false  # e.g. https://github.com/iandunham2/email-agent
+      - key: BRIGHTSPACE_SESSION_KEY
+        sync: false  # portable key for D2L session encryption in cloud sessions
+      - key: KSU_D2L_PASSWORD
+        sync: false  # for headless D2L re-auth fallback
+      - key: AGENT_SELF_ADDRESS
+        value: 'idunham@kennesaw.edu'
 
   - type: web
     name: ksu-exam-lti

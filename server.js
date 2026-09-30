@@ -129,6 +129,9 @@ async function connectDatabase() {
         await discMappingsCollection.createIndex({ resourceLinkId: 1 }, { unique: true });
         await passbackLogCollection.createIndex({ at: -1 });
 
+        // Email draft agent: poller + /agent/* routes (no-op unless EMAIL_AGENT_ENABLED=true)
+        require('./email-agent').initEmailAgent(app, db, log);
+
         log.info('✅ MongoDB connected');
     } catch (error) {
         log.warn('⚠️  MongoDB connection failed, using in-memory storage:', error.message);
