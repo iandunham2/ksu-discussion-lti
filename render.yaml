@@ -26,7 +26,7 @@ services:
       - key: AGENT_VAULT_KEY
         sync: false  # AES passphrase for vault blobs (graph refresh token, d2l cookie)
       - key: AGENT_API_BASE
-        sync: false  # this service's public URL, e.g. https://ksu-discussion-lti.onrender.com
+        sync: false  # this service's public URL, e.g. https://ksu-discussion-lti-3340.onrender.com
       - key: DEVIN_PAT
         sync: false  # cog_ personal access token from app.devin.ai
       - key: DEVIN_ORG_ID
