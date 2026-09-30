@@ -297,6 +297,30 @@ See [`INSTRUCTOR-GUIDE.md`](INSTRUCTOR-GUIDE.md) for instructor-facing issues an
 - Safari's Intelligent Tracking Prevention (ITP) can block session cookies inside a D2L iframe.
 - The app falls back to an `X-LTI-Token` header, so most Safari users still work, but if the launch URL token is stripped by a browser extension or redirect, relaunch from D2L.
 
+## Email Draft Agent (`email-agent/`)
+
+An always-on email triage agent also runs inside this service (no separate
+host). When `EMAIL_AGENT_ENABLED=true`, it:
+
+- Polls Ian's Exchange Online inbox every ~15 min via Microsoft Graph
+  (delegated `Mail.ReadWrite` token — **no `Mail.Send` scope**, so it can never
+  send mail).
+- Queues messages that need replies and spawns a Devin Cloud session to
+  compose each draft (`createReplyAll` → lands in Outlook Drafts).
+- Keeps the Brightspace/D2L session cookie warm (`whoami` ping each poll) so
+  course-question lookups work without re-authentication.
+- Serves a status page at **`/agent/status`** (green/yellow/red + recent drafts).
+
+State, queue, and the encrypted token vault live in MongoDB (`agentState`,
+`agentQueue`, `agentStatus`, `agentVault` collections). Cloud-session code
+(prompt, Graph helper, vendored brightspace build) lives in the private
+`iandunham2/email-agent` repo.
+
+Required env vars (see `render.yaml`): `EMAIL_AGENT_ENABLED`, `AGENT_SHARED_SECRET`,
+`AGENT_VAULT_KEY`, `AGENT_API_BASE`, `DEVIN_PAT`, `DEVIN_ORG_ID`,
+`EMAIL_AGENT_REPO`, `BRIGHTSPACE_SESSION_KEY`, `KSU_D2L_PASSWORD`,
+`AGENT_SELF_ADDRESS`.
+
 ## License
 
 MIT License — See the LICENSE file for details.
