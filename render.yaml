@@ -31,10 +31,8 @@ services:
         sync: false  # cog_ personal access token from app.devin.ai
       - key: DEVIN_ORG_ID
         sync: false  # from GET /v3/self
-      - key: EMAIL_AGENT_REPO
-        sync: false  # e.g. https://github.com/iandunham2/email-agent
-      - key: BRIGHTSPACE_SESSION_KEY
-        sync: false  # portable key for D2L session encryption in cloud sessions
+      - key: GH_REPO_TOKEN
+        sync: false  # GitHub token with read access to iandunham2/email-agent (injected into sessions for tarball fetch)
       - key: KSU_D2L_PASSWORD
         sync: false  # for headless D2L re-auth fallback
       - key: AGENT_SELF_ADDRESS

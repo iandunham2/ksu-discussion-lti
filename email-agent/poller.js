@@ -54,14 +54,15 @@ function createPoller({ store, log }) {
 
     async function spawnSession(ids) {
         const prompt =
-            `You are Ian Dunham's email draft agent. Follow AGENT-PROMPT.md exactly.\n\n` +
-            `Setup first:\n` +
-            `  node bin/bootstrap.mjs\n` +
-            `  (cd vendor/brightspace && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund)\n\n` +
-            `Process these inbox message IDs: ${ids.join(', ')}\n` +
-            `For each: fetch with bin/mail.mjs get, apply skip rules, and create a ` +
-            `threaded reply-all draft with bin/mail.mjs draft when a reply is warranted.\n` +
-            `Then report results with bin/report.mjs.`;
+            `You are Ian Dunham's email draft agent. Do this setup first:\n\n` +
+            `mkdir -p ~/repo && cd ~/repo && curl -sL -H "Authorization: Bearer $GH_REPO_TOKEN" ` +
+            `https://api.github.com/repos/iandunham2/email-agent/tarball | tar xz --strip-components=1\n` +
+            `if ! command -v node >/dev/null; then curl -fsSL ` +
+            `https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz | ` +
+            `sudo tar -xJ -C /usr/local --strip-components=1; fi\n` +
+            `node ~/repo/bin/bootstrap.mjs\n\n` +
+            `Then follow ~/repo/AGENT-PROMPT.md exactly. Process these inbox message IDs: ` +
+            `${ids.join(', ')}. Report results with node ~/repo/bin/report.mjs.`;
 
         const res = await fetch(`${DEVIN_API}/v3/organizations/${process.env.DEVIN_ORG_ID}/sessions`, {
             method: 'POST',
@@ -73,14 +74,13 @@ function createPoller({ store, log }) {
                 prompt,
                 title: `email-tick ${new Date().toISOString()}`,
                 tags: ['email-agent'],
-                repos: [process.env.EMAIL_AGENT_REPO],
                 devin_mode: 'lite',
                 max_acu_limit: Number(process.env.AGENT_MAX_ACU || 10),
                 resumable: false,
                 session_secrets: [
                     { key: 'AGENT_API_BASE', value: process.env.AGENT_API_BASE },
                     { key: 'AGENT_SHARED_SECRET', value: process.env.AGENT_SHARED_SECRET },
-                    { key: 'BRIGHTSPACE_SESSION_KEY', value: process.env.BRIGHTSPACE_SESSION_KEY }
+                    { key: 'GH_REPO_TOKEN', value: process.env.GH_REPO_TOKEN }
                 ]
             })
         });
