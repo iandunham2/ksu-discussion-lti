@@ -55,14 +55,17 @@ function createPoller({ store, log }) {
     async function spawnSession(ids) {
         const prompt =
             `You are Ian Dunham's email draft agent. Do this setup first:\n\n` +
-            `mkdir -p ~/repo && cd ~/repo && curl -sL -H "Authorization: Bearer $GH_REPO_TOKEN" ` +
-            `https://api.github.com/repos/iandunham2/email-agent/tarball | tar xz --strip-components=1\n` +
+            `mkdir -p ~/repo && cd ~/repo && for i in 1 2 3; do ` +
+            `curl -sL -H "Authorization: Bearer $GH_REPO_TOKEN" ` +
+            `https://api.github.com/repos/iandunham2/email-agent/tarball | tar xz --strip-components=1; ` +
+            `[ -f bin/bootstrap.mjs ] && break; sleep 3; done\n` +
             `if ! command -v node >/dev/null; then curl -fsSL ` +
             `https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz | ` +
             `sudo tar -xJ -C /usr/local --strip-components=1; fi\n` +
             `node ~/repo/bin/bootstrap.mjs\n\n` +
-            `Then follow ~/repo/AGENT-PROMPT.md exactly. Process these inbox message IDs: ` +
-            `${ids.join(', ')}. Report results with node ~/repo/bin/report.mjs.`;
+            `Work fully autonomously — do not pause to ask questions; retry transient failures ` +
+            `and keep going. Then follow ~/repo/AGENT-PROMPT.md exactly. Process these inbox ` +
+            `message IDs: ${ids.join(', ')}. Report results with node ~/repo/bin/report.mjs.`;
 
         const res = await fetch(`${DEVIN_API}/v3/organizations/${process.env.DEVIN_ORG_ID}/sessions`, {
             method: 'POST',
