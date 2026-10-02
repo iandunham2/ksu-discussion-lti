@@ -2,6 +2,7 @@
 // routes.js — status page + authenticated endpoints for cloud sessions.
 const express = require('express');
 const { mintAccessToken } = require('./graph');
+const discConfig = require('../discussion-config');
 
 const STALE_MS = 20 * 60 * 1000;
 
@@ -17,8 +18,11 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function createRouter({ store, log }) {
+function createRouter({ store, log, db }) {
     const router = express.Router();
+
+    const isBlockedDisc = (disc) =>
+        discConfig.BLOCKED_PREFIXES.some((px) => typeof disc === 'string' && disc.startsWith(px));
 
     router.get('/status', async (req, res) => {
         try {
@@ -95,6 +99,56 @@ ${s?.note ? `<div class="row"><span class="lbl">Note</span><span class="bad">${e
             else return res.status(400).json({ error: 'need {secret|config, value}' });
             res.json({ ok: true });
         } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // --- discussions: read-only view of the LTI discussion tool's data ---
+    router.get('/discussions', agentAuth, (req, res) => {
+        try {
+            const discussions = discConfig.getDiscOptions().map((o) => ({
+                disc: o.disc,
+                label: o.label,
+                initialPostDue: discConfig.getInitialPostDue(o.disc),
+                blocked: isBlockedDisc(o.disc)
+            }));
+            res.json({ discussions });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.get('/discussions/:disc', agentAuth, async (req, res) => {
+        try {
+            const disc = req.params.disc;
+            const posts = db
+                ? await db.collection('posts')
+                    .find({ disc })
+                    .project({ authorName: 1, authorEmail: 1, parentId: 1, timestamp: 1, wordCount: 1, contextTitle: 1, text: 1 })
+                    .sort({ timestamp: 1 })
+                    .toArray()
+                : [];
+            const brief = (p) => ({
+                author: p.authorName, email: p.authorEmail, section: p.contextTitle,
+                replyTo: p.parentId || null, at: p.timestamp, words: p.wordCount,
+                text: (p.text || '').slice(0, 300)
+            });
+            const email = String(req.query.email || '').toLowerCase();
+            res.json({
+                disc,
+                label: discConfig.getDiscLabel(disc),
+                instructions: discConfig.getInstructions(disc),
+                initialPostDue: discConfig.getInitialPostDue(disc),
+                blocked: isBlockedDisc(disc),
+                topLevelCount: posts.filter((p) => !p.parentId).length,
+                replyCount: posts.filter((p) => p.parentId).length,
+                studentPosts: email
+                    ? posts.filter((p) => (p.authorEmail || '').toLowerCase() === email).map(brief)
+                    : undefined,
+                posts: posts.map(brief)
+            });
+        } catch (err) {
+            log.error('[email-agent] discussions error:', err);
             res.status(500).json({ error: err.message });
         }
     });

@@ -18,7 +18,7 @@ function initEmailAgent(app, db, log) {
         return;
     }
     const store = stores(db);
-    app.use('/agent', createRouter({ store, log }));
+    app.use('/agent', createRouter({ store, log, db }));
     createPoller({ store, log }).start();
     log.info('[email-agent] enabled');
 }
