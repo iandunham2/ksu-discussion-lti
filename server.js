@@ -703,7 +703,7 @@ app.get('/api/user', requireAuth, async (req, res) => {
         resourceLinkTitle: req.session.user.resourceLinkTitle,
         disc: req.session.user.disc || null,
         instructions,
-        initialPostDue: getInitialPostDue(discKey),
+        initialPostDue: getInitialPostDue(discKey, req.session.user.id),
         examMode: EXAM_MODE
     });
 });
@@ -832,7 +832,7 @@ app.post('/api/posts', requireAuth, apiLimiter, async (req, res) => {
         // after the configured initial post due date, unless the user is an instructor.
         if (!req.session.user.isInstructor && !parentId) {
             const disc = req.session.user.disc;
-            const initialDue = getInitialPostDue(disc);
+            const initialDue = getInitialPostDue(disc, req.session.user.id);
             if (initialDue && new Date() > new Date(initialDue)) {
                 const deadlineMsg = EXAM_MODE
                     ? 'The exam submission deadline has passed. No further submissions are accepted.'

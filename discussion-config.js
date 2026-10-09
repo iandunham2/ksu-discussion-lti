@@ -23,6 +23,7 @@ const TOPIC_ID_TO_DISC = config.topicIdToDisc || {};
 const TITLE_TO_DISC = config.titleToDisc || {};
 const INSTRUCTIONS = config.instructions || {};
 const INITIAL_POST_DUE = config.initialPostDue || {};
+const INITIAL_POST_DUE_OVERRIDES = config.initialPostDueOverrides || {};
 const BLOCKED_PREFIXES = Array.isArray(config.blockedDiscPrefixes) ? config.blockedDiscPrefixes : ['3340-'];
 const EXAM_MODE = process.env.EXAM_MODE === 'true';
 
@@ -74,8 +75,15 @@ function getInstructions(disc) {
     return INSTRUCTIONS[disc] || null;
 }
 
-function getInitialPostDue(disc) {
+function getInitialPostDue(disc, userId) {
     if (!disc) return null;
+    const perUser = INITIAL_POST_DUE_OVERRIDES[disc];
+    if (perUser && userId) {
+        const id = String(userId);
+        const suffix = id.includes('_') ? id.split('_').pop() : id;
+        const override = perUser[id] ?? perUser[suffix];
+        if (override) return override;
+    }
     return INITIAL_POST_DUE[disc] || null;
 }
 
@@ -118,6 +126,7 @@ module.exports = {
     TITLE_TO_DISC,
     INSTRUCTIONS,
     INITIAL_POST_DUE,
+    INITIAL_POST_DUE_OVERRIDES,
     CORRECT_3300_INSTRUCTIONS: INSTRUCTIONS,
     BLOCKED_PREFIXES,
     EXAM_MODE,
