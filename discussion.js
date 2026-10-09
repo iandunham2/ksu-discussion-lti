@@ -44,6 +44,14 @@ class DiscussionBoard {
         this.keepAliveIntervalMs = 5 * 60 * 1000; // ping at most every 5 minutes
         this.keepAliveInactivityMs = 2 * 60 * 1000; // only ping if active within 2 minutes
 
+        // Autosave: debounced draft persistence so work survives crashes,
+        // server restarts, and accidental tab closes.
+        this.draftDirty = false;
+        this._autosaveTimer = null;
+        this._draftSaveInFlight = false;
+        this.autosaveDelayMs = 15 * 1000; // save 15s after the last edit
+        this.autosaveSweepMs = 30 * 1000; // fallback sweep for missed input events
+
         // Typing analytics
         this.keystrokeCounter = 0;
         this.pasteAttempts = 0;
@@ -88,6 +96,7 @@ class DiscussionBoard {
         this.setupPasteImageConversion();
         this.startAutoRefresh();
         this.startKeepAlive();
+        this.setupAutosave();
     }
 
     // ======================
@@ -304,6 +313,15 @@ class DiscussionBoard {
             // Success — reset editor and paste field
             this.editor.textContent = '';
             if (this.pasteField) this.pasteField.innerHTML = '';
+            // Clear the stored draft so loadDraft() doesn't offer to restore
+            // a stale copy of an already-submitted post.
+            this.draftDirty = false;
+            clearTimeout(this._autosaveTimer);
+            fetch('/api/save-draft', {
+                method: 'POST',
+                headers: this.apiHeaders(),
+                body: JSON.stringify({ text: '', scratchPad: '', pasted: '' })
+            }).catch(() => {});
             this.cancelReply();
             this.resetAnalytics();
             this.updateStats();
@@ -914,25 +932,78 @@ class DiscussionBoard {
     // DRAFTS
     // ======================
 
-    async saveDraft() {
-        if (!this.userInfo) return;
-        this.saveDraftBtn.textContent = 'Saving...';
+    draftContent() {
+        const scratchPad = document.getElementById('scratch-pad');
+        return {
+            text: this.editor.textContent || '',
+            scratchPad: scratchPad ? scratchPad.innerHTML : '',
+            pasted: this.pasteField ? this.pasteField.innerHTML : ''
+        };
+    }
+
+    async saveDraft(isAuto = false) {
+        if (!this.userInfo || this._draftSaveInFlight) return;
+
+        const draft = this.draftContent();
+        // Never autosave an entirely empty composer — a stray empty write
+        // would clobber a real draft stored from a previous session.
+        if (isAuto && !draft.text.trim() && !draft.pasted.trim() && !draft.scratchPad.trim()) return;
+
+        this._draftSaveInFlight = true;
+        if (!isAuto) this.saveDraftBtn.textContent = 'Saving...';
         try {
-            const scratchPad = document.getElementById('scratch-pad');
-            await fetch('/api/save-draft', {
+            const res = await fetch('/api/save-draft', {
                 method: 'POST',
                 headers: this.apiHeaders(),
-                body: JSON.stringify({
-                    text: this.editor.textContent || '',
-                    scratchPad: scratchPad ? scratchPad.innerHTML : '',
-                    pasted: this.pasteField ? this.pasteField.innerHTML : ''
-                })
+                body: JSON.stringify(draft)
             });
-            this.saveDraftBtn.textContent = '✅ Saved!';
+            if (!res.ok) throw new Error('save failed');
+            this.draftDirty = false;
+            this.saveDraftBtn.textContent = isAuto ? 'Autosaved ✓' : '✅ Saved!';
             setTimeout(() => { this.saveDraftBtn.textContent = 'Save Draft'; }, 1500);
         } catch (e) {
-            this.saveDraftBtn.textContent = 'Save Draft';
+            if (!isAuto) this.saveDraftBtn.textContent = 'Save Draft';
+        } finally {
+            this._draftSaveInFlight = false;
         }
+    }
+
+    markDraftDirty() {
+        this.draftDirty = true;
+        clearTimeout(this._autosaveTimer);
+        this._autosaveTimer = setTimeout(() => this.maybeAutosave(), this.autosaveDelayMs);
+    }
+
+    async maybeAutosave() {
+        if (!this.draftDirty || !this.userInfo || this._draftSaveInFlight) return;
+        await this.saveDraft(true);
+    }
+
+    beaconDraft() {
+        // Best-effort save when the tab is closed or backgrounded. sendBeacon
+        // carries cookies but no custom headers, so this only helps
+        // cookie-session users — still better than losing the work.
+        if (!this.draftDirty || !this.userInfo) return;
+        try {
+            const blob = new Blob([JSON.stringify(this.draftContent())], { type: 'application/json' });
+            if (navigator.sendBeacon('/api/save-draft', blob)) this.draftDirty = false;
+        } catch (e) { /* best effort */ }
+    }
+
+    setupAutosave() {
+        const onEdit = () => this.markDraftDirty();
+        this.editor.addEventListener('input', onEdit);
+        const scratchPad = document.getElementById('scratch-pad');
+        if (scratchPad) scratchPad.addEventListener('input', onEdit);
+        if (this.pasteField) this.pasteField.addEventListener('input', onEdit);
+
+        // Fallback sweep in case an input event was missed (Safari quirks)
+        setInterval(() => this.maybeAutosave(), this.autosaveSweepMs);
+
+        window.addEventListener('pagehide', () => this.beaconDraft());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') this.beaconDraft();
+        });
     }
 
     async loadDraft() {
@@ -940,7 +1011,7 @@ class DiscussionBoard {
             const response = await fetch('/api/load-draft', { headers: this.ltiToken ? { 'X-LTI-Token': this.ltiToken } : {} });
             if (!response.ok) return;
             const data = await response.json();
-            if (!data.found || !data.text) return;
+            if (!data.found || (!data.text && !data.scratchPad && !data.pasted)) return;
 
             const savedTime = new Date(data.savedAt).toLocaleString();
             if (confirm(`Found a saved draft from ${savedTime}. Restore it?`)) {
