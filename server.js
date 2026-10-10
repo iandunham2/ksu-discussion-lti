@@ -158,7 +158,7 @@ const corsOptions = {
         // Allow D2L Brightspace iframe parents and the tool's own origin
         const d2lRegex = /^https:\/\/(?:.*\.)?view\.usg\.edu$/;
         if (d2lRegex.test(origin)) return callback(null, true);
-        if (origin === 'https://ksu-discussion-lti.onrender.com' || origin.startsWith('https://ksu-discussion-lti.onrender.com:')) {
+        if (/^https:\/\/ksu-(discussion|exam)-lti(-[a-z0-9]+)?\.onrender\.com(:443)?$/.test(origin)) {
             return callback(null, true);
         }
         return callback(new Error(`CORS origin not allowed: ${origin}`), false);
