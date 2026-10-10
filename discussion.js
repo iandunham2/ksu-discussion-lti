@@ -957,12 +957,17 @@ class DiscussionBoard {
                 headers: this.apiHeaders(),
                 body: JSON.stringify(draft)
             });
-            if (!res.ok) throw new Error('save failed');
+            if (!res.ok) throw Object.assign(new Error('save failed'), { status: res.status });
             this.draftDirty = false;
             this.saveDraftBtn.textContent = isAuto ? 'Autosaved ✓' : '✅ Saved!';
             setTimeout(() => { this.saveDraftBtn.textContent = 'Save Draft'; }, 1500);
         } catch (e) {
-            if (!isAuto) this.saveDraftBtn.textContent = 'Save Draft';
+            this.saveDraftBtn.textContent = '⚠ Save failed';
+            if (!isAuto) {
+                alert(e && e.status === 401
+                    ? 'Draft could not be saved — your session has expired. Keep this tab open, relaunch the link from D2L in a new tab, then come back here and click Save Draft again.'
+                    : 'Draft could not be saved. Click Save Draft to try again — if it keeps failing, keep this tab open and contact your instructor.');
+            }
         } finally {
             this._draftSaveInFlight = false;
         }
