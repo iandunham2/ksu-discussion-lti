@@ -1,9 +1,13 @@
-name: Keep Render services warm
+name: Keep Render servers warm
 
 # Render's free tier spins a service down after ~15 min without traffic, and
 # the next request then pays a ~30-60s cold start. During the spin-up window,
 # student Save Draft / Post requests on the exam tool failed outright, so we
-# ping /health often enough to keep both deployments warm.
+# ping /health often enough to keep both live deployments warm.
+#
+# NOTE: GitHub delays scheduled workflows under load (observed: runs spaced
+# 3-6h apart on a */10 schedule), so this alone is not airtight protection —
+# an external monitor (e.g., UptimeRobot) is the reliable backstop.
 
 on:
   schedule:
@@ -14,13 +18,22 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping discussion service
+      - name: Ping ksu-discussion-lti (weekly discussions)
+        continue-on-error: true
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 https://ksu-discussion-lti.onrender.com/health)
-          echo "ksu-discussion-lti -> $code"
-          [ "$code" = "200" ]
-      - name: Ping exam service
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 60 https://ksu-discussion-lti.onrender.com/health)
+            echo "discussion server attempt $i: $STATUS"
+            if [ "$STATUS" = "200" ]; then break; fi
+            sleep 5
+          done
+
+      - name: Ping ksu-exam-lti (exams)
+        continue-on-error: true
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 https://ksu-exam-lti.onrender.com/health)
-          echo "ksu-exam-lti -> $code"
-          [ "$code" = "200" ]
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 60 https://ksu-exam-lti.onrender.com/health)
+            echo "exam server attempt $i: $STATUS"
+            if [ "$STATUS" = "200" ]; then break; fi
+            sleep 5
+          done
