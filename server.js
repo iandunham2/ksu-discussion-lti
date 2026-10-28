@@ -1184,11 +1184,16 @@ async function runAIDetection(text) {
     const usePangram = provider === 'pangram' || (provider !== 'sapling' && !!config.pangram.apiKey);
     try {
         if (usePangram && config.pangram.apiKey) {
-            return await runPangramDetection(text);
+            const pangramResult = await runPangramDetection(text);
+            if (pangramResult) return pangramResult;
+            log.warn('Pangram detection failed; falling back to Sapling if configured');
         }
         if (config.sapling.apiKey) return await runSaplingDetection(text);
     } catch (e) {
         log.error(`${usePangram ? 'Pangram' : 'Sapling'} detection error:`, e.message);
+        if (usePangram && config.sapling.apiKey) {
+            try { return await runSaplingDetection(text); } catch {}
+        }
     }
     return null;
 }
