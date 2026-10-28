@@ -60,6 +60,13 @@ const config = {
     sapling: {
         apiKey: process.env.SAPLING_API_KEY || ''
     },
+    pangram: {
+        // Free API keys are available to academic researchers via
+        // https://www.pangram.com/contact-us/research — otherwise prepaid
+        // credits at $0.05/100 words (https://www.pangram.com/solutions/api).
+        apiKey: process.env.PANGRAM_API_KEY || '',
+        model: process.env.PANGRAM_MODEL || 'default'
+    },
     instructorRoles: ['Instructor', 'Administrator', 'TeachingAssistant', 'ContentDeveloper', 'urn:lti:role:ims/lis/Instructor', 'urn:lti:instrole:ims/lis/Administrator']
 };
 
@@ -1012,25 +1019,104 @@ app.get('/api/load-draft', requireAuth, async (req, res) => {
 });
 
 // ======================
-// API: AI Detection (Sapling)
+// API: AI Detection (Pangram preferred, Sapling fallback)
 // ======================
 
-async function runAIDetection(text) {
-    if (isDev && !config.sapling.apiKey) {
-        // Mock response in dev mode
-        const fakeProb = Math.random() * 0.3;
-        return {
-            documents: [{
-                completely_generated_prob: fakeProb,
-                average_generated_prob: fakeProb * 0.8,
-                class: fakeProb > 0.5 ? 'ai' : 'human',
-                sentences: []
-            }]
-        };
+function httpsJson({ method, hostname, path, headers, body, timeoutMs }) {
+    return new Promise((resolve, reject) => {
+        const https = require('https');
+        const req = https.request({ hostname, path, method, headers }, (res) => {
+            let data = '';
+            res.on('data', (chunk) => (data += chunk));
+            res.on('end', () => {
+                try {
+                    resolve({ status: res.statusCode, json: JSON.parse(data) });
+                } catch (e) {
+                    reject(new Error(`JSON parse failed (${res.statusCode}): ${data.slice(0, 200)}`));
+                }
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(timeoutMs || 10000, () => req.destroy(new Error('request timed out')));
+        if (body) req.write(body);
+        req.end();
+    });
+}
+
+// Pangram's REST API is async: POST /task returns a task_id, then poll
+// GET /task/{task_id} until stage is STAGE_SUCCESS / STAGE_FAILED.
+// https://docs.pangram.com/api-reference/ai-detection
+async function runPangramDetection(text) {
+    const headers = { 'Content-Type': 'application/json', 'x-api-key': config.pangram.apiKey };
+    const submit = await httpsJson({
+        method: 'POST',
+        hostname: 'text.external-api.pangram.com',
+        path: '/task',
+        headers,
+        body: JSON.stringify({ text, model: config.pangram.model, public_dashboard_link: false }),
+        timeoutMs: 10000
+    });
+    const taskId = submit.json?.task_id;
+    if (!taskId) {
+        log.error('Pangram submit error:', JSON.stringify(submit.json).slice(0, 200));
+        return null;
     }
 
-    if (!config.sapling.apiKey) return null;
+    const deadline = Date.now() + 25000;
+    let result = null;
+    while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const poll = await httpsJson({
+            method: 'GET',
+            hostname: 'text.external-api.pangram.com',
+            path: `/task/${taskId}`,
+            headers,
+            timeoutMs: 10000
+        });
+        const stage = poll.json?.stage;
+        if (stage === 'STAGE_SUCCESS') { result = poll.json; break; }
+        if (stage === 'STAGE_FAILED') {
+            log.error('Pangram task failed:', JSON.stringify(poll.json).slice(0, 200));
+            return null;
+        }
+    }
+    if (!result) { log.error('Pangram poll timed out'); return null; }
 
+    // Normalize to the Sapling-compatible aiResults shape the rest of the
+    // pipeline expects, preserving the raw Pangram fields alongside.
+    const windows = Array.isArray(result.windows) ? result.windows : [];
+    const aiProb = Math.min(1, (result.fraction_ai ?? 0) + (result.fraction_ai_assisted ?? 0));
+    const avgProb = windows.length
+        ? windows.reduce((a, w) => a + (w.ai_assistance_score ?? 0), 0) / windows.length
+        : aiProb;
+    const short = String(result.prediction_short || '').toLowerCase();
+    return {
+        documents: [{
+            completely_generated_prob: result.fraction_ai ?? aiProb,
+            average_generated_prob: avgProb,
+            class: short.includes('ai') ? 'ai' : short.includes('mix') || short.includes('assist') ? 'mixed' : 'human',
+            sentences: windows.map((w) => ({
+                sentence: w.text,
+                generated_prob: w.ai_assistance_score ?? null
+            }))
+        }],
+        provider: 'pangram',
+        pangram: {
+            taskId,
+            version: result.version,
+            headline: result.headline,
+            prediction: result.prediction,
+            predictionShort: result.prediction_short,
+            fractionAi: result.fraction_ai,
+            fractionAiAssisted: result.fraction_ai_assisted,
+            fractionHuman: result.fraction_human,
+            numAiSegments: result.num_ai_segments,
+            numAiAssistedSegments: result.num_ai_assisted_segments
+        }
+    };
+}
+
+async function runSaplingDetection(text) {
     return new Promise((resolve) => {
         const https = require('https');
         const postData = JSON.stringify({ key: config.sapling.apiKey, text });
@@ -1078,6 +1164,33 @@ async function runAIDetection(text) {
         apiReq.write(postData);
         apiReq.end();
     });
+}
+
+async function runAIDetection(text) {
+    const provider = (process.env.AI_PROVIDER || '').toLowerCase();
+    if (isDev && !config.pangram.apiKey && !config.sapling.apiKey) {
+        // Mock response in dev mode
+        const fakeProb = Math.random() * 0.3;
+        return {
+            documents: [{
+                completely_generated_prob: fakeProb,
+                average_generated_prob: fakeProb * 0.8,
+                class: fakeProb > 0.5 ? 'ai' : 'human',
+                sentences: []
+            }]
+        };
+    }
+
+    const usePangram = provider === 'pangram' || (provider !== 'sapling' && !!config.pangram.apiKey);
+    try {
+        if (usePangram && config.pangram.apiKey) {
+            return await runPangramDetection(text);
+        }
+        if (config.sapling.apiKey) return await runSaplingDetection(text);
+    } catch (e) {
+        log.error(`${usePangram ? 'Pangram' : 'Sapling'} detection error:`, e.message);
+    }
+    return null;
 }
 
 // ======================

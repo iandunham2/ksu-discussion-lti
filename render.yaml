@@ -16,6 +16,10 @@ services:
         generateValue: true
       - key: SAPLING_API_KEY
         sync: false
+      - key: PANGRAM_API_KEY
+        sync: false  # preferred detector; used instead of Sapling when set
+      - key: AI_PROVIDER
+        sync: false  # 'pangram' | 'sapling' — default: pangram if key present
       - key: MONGODB_URI
         sync: false  # paste your MongoDB Atlas connection string
       # --- email draft agent (email-agent/ module) ---
@@ -59,5 +63,9 @@ services:
         generateValue: true
       - key: SAPLING_API_KEY
         sync: false
+      - key: PANGRAM_API_KEY
+        sync: false  # preferred detector; used instead of Sapling when set
+      - key: AI_PROVIDER
+        sync: false  # 'pangram' | 'sapling' — default: pangram if key present
       - key: MONGODB_URI
         sync: false
